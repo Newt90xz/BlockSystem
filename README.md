@@ -1,6 +1,12 @@
 # Blocksystem
+Blocksystem is a project template designed to facilitate the development of applications using Vue 3, Vite, and TypeScript.
 
-This template should help get you started developing with Vue 3 in Vite.
+## Requirements
+Before running the project, make sure you have installed:
+- Node.js (recommended version: 18+)
+- npm or yarn
+You can download Node.js here:
+https://nodejs.org/
 
 ## Recommended IDE Setup
 
@@ -24,14 +30,15 @@ TypeScript cannot handle type information for `.vue` imports by default, so we r
 See [Vite Configuration Reference](https://vite.dev/config/).
 
 ## Project Setup
-
+Navigate to the root directory of the project and run the following command in the terminal:
 ```sh
 npm install
 ```
+This command will automatically install Vue, Vite, TypeScript, and the required @vue/tsconfig configurations for the project.
 
-### Execute Block System
-
+### Running the Application.
+To start the development server, run:
 ```sh
 npm run dev
 ```
-
+This will launch the application in development mode using Vite.
