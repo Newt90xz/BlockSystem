@@ -5,6 +5,7 @@ Blocksystem is a project template designed to facilitate the development of appl
 Before running the project, make sure you have installed:
 - Node.js (recommended version: 18+)
 - npm or yarn
+
 You can download Node.js here:
 https://nodejs.org/
 
