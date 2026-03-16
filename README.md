@@ -1,3 +1,9 @@
+<<<<<<< HEAD
+=======
+
+# BlockSystem
+=======
+>>>>>>> 1f79ce3 (Initial commit with .gitignore)
 # Blocksystem
 
 This template should help get you started developing with Vue 3 in Vite.
@@ -40,3 +46,7 @@ npm run dev
 ```sh
 npm run build
 ```
+<<<<<<< HEAD
+=======
+>>>>>>> ba45336 (Initial commit with .gitignore)
+>>>>>>> 1f79ce3 (Initial commit with .gitignore)
