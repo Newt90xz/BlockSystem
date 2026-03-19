@@ -3,33 +3,21 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 
 // ===== PROPS =====
 const props = defineProps({
-  maxBloques: { type: Number, default: Infinity },
-  maxPorGrupo: { type: Number, default: Infinity },
-  bloquesbarra: { type: Number, default: 9 },
-  cantidadBl: {type: Number, default: 10},
-  gridColumns: {type: Number, default: 20},
-  gridRows: {type: Number, default: 15},
+  maxBloques:   { type: Number, default: Infinity },
+  maxPorGrupo:  { type: Number, default: Infinity },
+  cantidadBl:   { type: Number, default: 10 },
+  gridColumns:  { type: Number, default: 20 },
+  gridRows:     { type: Number, default: 15 },
   initialBlocks: { type: Array, default: () => [] },
 });
 
+// Verdadero después del primer montaje — distingue recarga de página (false) de remount por parámetros (true)
+let _hasBeenMounted = false;
+
 // ===== CONFIGURACIÓN =====
+const BLOCK_COLOR = '#EF4444'; // Color base del bloque 1x1
 const BLOCKS_CONFIG = {
-  // UNIDADES (1-9) - Colores SATURADOS fijos
-  uno: { value: 1, color: '#EF4444', width: 1, height: 1 },  
-  dos: { value: 2, color: '#F59E0B', width: 2, height: 1 },  
-  tres: { value: 3, color: '#10B981', width: 3, height: 1},  
-  cuatro: { value: 4, color: '#3B82F6', width: 4, height: 1 },
-  cinco: { value: 5, color: '#8B5CF6', width: 5, height: 1},  
-  seis: { value: 6, color: '#EC4899', width: 6, height: 1 },  
-  siete: { value: 7, color: '#06B6D4', width: 7, height: 1},  
-  ocho: { value: 8, color: '#F97316', width: 8, height: 1 },  
-  nueve: { value: 9, color: '#14B8A6', width: 9, height: 1 },  
-  
-  // DECENAS (10, 20, 30, 40) - Progresión de saturación
-  diez: { value: 10, color: '#3B82F6', width: 10, height: 1},  
-  veinte: { value: 20, color: '#2563EB', width: 10, height: 2}, 
-  treinta: { value: 30, color: '#1E40AF', width: 10, height: 3 },  
-  cuarenta: { value: 40, color: '#1E3A8A', width: 10, height: 4 }  
+  uno: { value: 1, color: BLOCK_COLOR, width: 1, height: 1 },
 };
 
 /**
@@ -68,7 +56,7 @@ const separateBlocks = (block1, block2) => {
     { dx: 0, dy: -1, name: 'arriba' }
   ];
   
-  // NUEVA LÓGICA: Verificar si el movimiento causaría acoplamiento inmediato
+  // Verificar si el movimiento causaría acoplamiento inmediato
   const tryMoveSubgroup = (subgroup, excludeSubgroup, directions) => {
     for (const dir of directions) {
       let canMoveAll = true;
@@ -84,8 +72,8 @@ const separateBlocks = (block1, block2) => {
         
         // Verificar límites
         if (newX < 0 || newY < 0 || 
-            newX + dims.width > GRID_SIZE || 
-            newY + dims.height > GRID_SIZE) {
+            newX + dims.width > GRID_WIDTH || 
+            newY + dims.height > GRID_HEIGHT) {
           canMoveAll = false;
           break;
         }
@@ -147,46 +135,35 @@ const separateBlocks = (block1, block2) => {
     }
     return false;
   };
-  
-  // NUEVA ESTRATEGIA DE SEPARACIÓN:
-  // 1. Intentar mover subgrupo pequeño a los LADOS
+  // Intentar mover subgrupo pequeño a los LADOS
   if (tryMoveSubgroup(subgroupToMove, otherSubgroup, sideDirections)) {
     return true;
   }
-  
-  // 2. Si no funciona, intentar mover el OTRO subgrupo a los LADOS
+  // Si no funciona, intentar mover el OTRO subgrupo a los LADOS
   if (tryMoveSubgroup(otherSubgroup, subgroupToMove, sideDirections)) {
     return true;
   }
-  
-  // 3. Intentar mover subgrupo pequeño VERTICAL (arriba/abajo)
+  // Intentar mover subgrupo pequeño VERTICAL (arriba/abajo)
   if (tryMoveSubgroup(subgroupToMove, otherSubgroup, verticalDirections)) {
     return true;
   }
   
-  // 4. Intentar mover el OTRO subgrupo VERTICAL
+  // Intentar mover el OTRO subgrupo VERTICAL
   if (tryMoveSubgroup(otherSubgroup, subgroupToMove, verticalDirections)) {
     return true;
   }
-  
-  // 5. Si NADA funciona, crear separación VISUAL sin mover
-  // Agregar un pequeño offset visual para mostrar que están separados
-  console.log('⚠️ No se puede separar físicamente - aplicando separación visual');
-  
-  // Marcar bloques como visualmente separados (esto se puede usar en CSS)
+  // Marcar bloques como visualmente separados
   subgroupToMove.forEach(id => {
     const block = shapes.value.find(s => s.id === id);
     if (block) {
       block.visuallySeparated = true;
     }
   });
-  
+
   return true; // Consideramos que la separación fue exitosa (visual)
 };
 
-/**
- * Encuentra subgrupo de bloques FÍSICAMENTE ADYACENTES
- */
+// Encuentra subgrupo de bloques FÍSICAMENTE ADYACENTES
 const findPhysicalSubgroup = (startBlockId, excludeBlockId) => {
   const visited = new Set();
   const subgroup = [];
@@ -216,10 +193,7 @@ const findPhysicalSubgroup = (startBlockId, excludeBlockId) => {
   return subgroup;
 };
 
-/**
- * Encuentra bloques que están FÍSICAMENTE ADYACENTES (tocándose) en el grid
- * Solo horizontalmente (derecha/izquierda)
- */
+// Encuentra bloques que están FÍSICAMENTE ADYACENTES (tocándose) en el grid. Solo horizontalmente (derecha/izquierda)
 const findPhysicallyAdjacentBlocks = (block) => {
   const adjacent = [];
   const dims = getShapeDimensions(block);
@@ -248,9 +222,7 @@ const findPhysicallyAdjacentBlocks = (block) => {
   return adjacent;
 };
 
-/**
- * Verifica si una posición está disponible, excluyendo ciertos bloques
- */
+// Verifica si una posición está disponible, excluyendo ciertos bloques
 const isPositionAvailableExcluding = (gridX, gridY, width, height, excludeIds) => {
   for (let dy = 0; dy < height; dy++) {
     for (let dx = 0; dx < width; dx++) {
@@ -276,227 +248,78 @@ const isPositionAvailableExcluding = (gridX, gridY, width, height, excludeIds) =
   return true;
 };
 
-const ALL_UNIDADES = ['uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
-const UNIDADES = computed(() => ALL_UNIDADES.slice(0, props.bloquesbarra));
-const DECENAS = ['diez', 'veinte', 'treinta', 'cuarenta'];
+// Genera la única unidad de un bloque 1x1
+const generateUnit = () => ([{ relX: 0, relY: 0, color: BLOCK_COLOR, baseColor: BLOCK_COLOR }]);
 
-/**
- * Genera las unidades (cubitos 1x1) de un bloque según su configuración
- */
-const generateUnitsForBlock = (type) => {
-  const config = BLOCKS_CONFIG[type];
-  if (!config) return [];
-  
-  const units = [];
-  const width = config.width;
-  const height = config.height;
-  
-  // Generar unidades para todas las celdas del bloque
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      units.push({
-        relX: x,
-        relY: y,
-        color: config.color,  // Color base inicial
-        baseColor: config.color  // Guardar color original
-      });
-    }
-  }
-  
-  return units;
-};
-
-/**
- * Genera unidades para un bloque custom (cortado)
- */
-const generateUnitsForCustomBlock = (quadrants, baseColor) => {
-  return quadrants.map(q => ({
-    relX: q.relX,
-    relY: q.relY,
-    color: baseColor,
-    baseColor: baseColor
-  }));
-};
-
-// ===== SISTEMA DE COLOR SEGÚN SUMA =====
-
-// Mapa de colores: suma → color
+// ===== COLORES =====
+// Colores para grupos de suma 1-9
 const COLORS_BY_SUM = {
-  // Unidades 1-9: Colores fijos
-  1: '#EF4444',  // Rojo
-  2: '#F59E0B',  // Naranja
-  3: '#10B981',  // Verde
-  4: '#3B82F6',  // Azul
-  5: '#8B5CF6',  // Púrpura
-  6: '#EC4899',  // Rosa
-  7: '#06B6D4',  // Cyan
-  8: '#F97316',  // Naranja oscuro
-  9: '#14B8A6',  // Turquesa
-  
-  // Decenas: Progresión de saturación en azul
-  10: '#3B82F6',  // Azul base
-  11: '#3B82F6',
-  12: '#3B82F6',
-  13: '#3B82F6',
-  14: '#3B82F6',
-  15: '#3B82F6',
-  16: '#3B82F6',
-  17: '#3B82F6',
-  18: '#3B82F6',
-  19: '#3B82F6',
-  
-  20: '#2563EB',  // Azul más oscuro
-  21: '#2563EB',
-  22: '#2563EB',
-  23: '#2563EB',
-  24: '#2563EB',
-  25: '#2563EB',
-  26: '#2563EB',
-  27: '#2563EB',
-  28: '#2563EB',
-  29: '#2563EB',
-  
-  30: '#1E40AF',  // Azul aún más oscuro
-  31: '#1E40AF',
-  32: '#1E40AF',
-  33: '#1E40AF',
-  34: '#1E40AF',
-  35: '#1E40AF',
-  36: '#1E40AF',
-  37: '#1E40AF',
-  38: '#1E40AF',
-  39: '#1E40AF',
-  
-  40: '#1E3A8A',  // Azul muy oscuro
+  1: '#EF4444',
+  2: '#F59E0B',
+  3: '#10B981',
+  4: '#3B82F6',
+  5: '#8B5CF6',
+  6: '#EC4899',
+  7: '#06B6D4',
+  8: '#F97316',
+  9: '#14B8A6',
 };
 
-/**
- * Obtiene el color según la suma del grupo
- * Si la suma está en el mapa, usa ese color
- * Si no, usa un color por defecto
- */
-const getColorBySum = (sum) => {
-  if (sum >= 40) return COLORS_BY_SUM[40];
-  return COLORS_BY_SUM[sum] || '#64748b'; // Gris por defecto
-};
+// Colores para grupos de 10+ unidades, por decena
+const DECENA_COLORS = ['#1E40AF', '#3B82F6', '#60A5FA', '#93C5FD'];
 
-/**
- * Obtiene el color correcto para un bloque según su valor
- * Busca en BLOCKS_CONFIG el color que corresponde a ese valor
- */
-const getColorByValue = (value) => {
-  // Buscar en unidades 1-9
-  const unidadKey = ['uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'][value - 1];
-  if (unidadKey && BLOCKS_CONFIG[unidadKey]) {
-    return BLOCKS_CONFIG[unidadKey].color;
-  }
-  
-  // Si es 10 o más, usar el sistema de colores por suma
-  return getColorBySum(value);
-};
+const getColorBySum = (sum) => COLORS_BY_SUM[sum] ?? '#64748b';
 
-/**
- * Colorea las unidades de un grupo según el sistema de decenas
- * - Si suma < 10: Color según la suma (ej: 1+1=2 → naranja)
- * - Si suma >= 10: Primeras 10 unidades color decena, resto según valor
- */
+// Colorea las unidades de un grupo según su suma total.
+// Suma 1-9: todos los cubitos toman el color de esa suma.
+// Suma ≥ 10: cada grupo de 10 cubitos (contando de izquierda a derecha)
+// toma un tono de azul distinto; los cubitos del resto final toman
+// el color de su valor (ej. resto 3 → verde).
 const colorearUnidadesDeGrupo = (grupo) => {
-  
-  // 1. Calcular suma total del grupo
   let sumaTotal = 0;
-  grupo.forEach(bloqueId => {
-    const bloque = shapes.value.find(s => s.id === bloqueId);
-    if (bloque) sumaTotal += bloque.value;
+  grupo.forEach(id => {
+    const b = shapes.value.find(s => s.id === id);
+    if (b) sumaTotal += b.value;
   });
-  
-  
-  // 2. Si suma < 10: Colorear TODAS las unidades con el color de la suma
+
   if (sumaTotal < 10) {
-    const colorDeLaSuma = getColorByValue(sumaTotal);
-    
-    grupo.forEach(bloqueId => {
-      const bloque = shapes.value.find(s => s.id === bloqueId);
-      if (!bloque || !bloque.units) return;
-      
-      bloque.units.forEach(unit => {
-        unit.color = colorDeLaSuma;
-      });
+    const color = getColorBySum(sumaTotal);
+    grupo.forEach(id => {
+      const b = shapes.value.find(s => s.id === id);
+      if (b?.units) b.units.forEach(u => { u.color = color; });
     });
     return;
   }
-  
-  // 3. Si suma >= 10: Sistema de decenas
-  // Recolectar TODAS las unidades del grupo (de izquierda a derecha)
-  const todasLasUnidades = [];
-  
-  grupo.forEach(bloqueId => {
-    const bloque = shapes.value.find(s => s.id === bloqueId);
-    if (!bloque || !bloque.units) return;
-    
-    bloque.units.forEach((unit, unitIndex) => {
-      todasLasUnidades.push({
-        bloqueId: bloque.id,
-        unitIndex: unitIndex,
-        posicionX: bloque.gridX + unit.relX,
-        posicionY: bloque.gridY + unit.relY,
-        baseColor: unit.baseColor || unit.color
-      });
+
+  // Recolectar todas las unidades ordenadas de izquierda a derecha
+  const unidades = [];
+  grupo.forEach(id => {
+    const b = shapes.value.find(s => s.id === id);
+    if (!b?.units) return;
+    b.units.forEach((u, i) => {
+      unidades.push({ bloqueId: b.id, unitIndex: i, x: b.gridX + u.relX, baseColor: u.baseColor || u.color });
     });
   });
-  
-  // Ordenar por posición (izquierda a derecha, luego arriba a abajo)
-  todasLasUnidades.sort((a, b) => {
-    if (a.posicionX !== b.posicionX) {
-      return a.posicionX - b.posicionX;
-    }
-    return a.posicionY - b.posicionY;
+  unidades.sort((a, b) => a.x - b.x);
+
+  const total = unidades.length;
+  const resto = total % 10;
+  const inicioResto = total - resto;
+
+  unidades.forEach((u, index) => {
+    const b = shapes.value.find(s => s.id === u.bloqueId);
+    if (!b) return;
+    const decena = Math.floor(index / 10);
+    const color = index >= inicioResto && resto > 0
+      ? getColorBySum(resto)
+      : (DECENA_COLORS[decena] ?? DECENA_COLORS[DECENA_COLORS.length - 1]);
+    b.units[u.unitIndex].color = color;
   });
-  
-  const totalUnidades = todasLasUnidades.length;
-  const resto = totalUnidades % 10;
-  
-  
-  // 4. Colorear según posición
-  todasLasUnidades.forEach((unitData, index) => {
-    const bloque = shapes.value.find(s => s.id === unitData.bloqueId);
-    if (!bloque) return;
-    
-    let nuevoColor;
-    
-    if (index < 10) {
-      // Primera decena (0-9): Azul oscuro
-      nuevoColor = '#1E40AF';
-    } else if (index < 20) {
-      // Segunda decena (10-19): Azul medio
-      nuevoColor = '#3B82F6';
-    } else if (index < 30) {
-      // Tercera decena (20-29): Azul claro
-      nuevoColor = '#60A5FA';
-    } else if (index < 40) {
-      // Cuarta decena (30-39): Azul muy claro
-      nuevoColor = '#93C5FD';
-    } else {
-      // Más de 40: Color según el resto
-      nuevoColor = resto > 0 ? getColorByValue(resto) : unitData.baseColor;
-    }
-    
-    // IMPORTANTE: Si estamos en el "resto" (después de las decenas completas)
-    // Colorear con el color correspondiente al valor del resto
-    const decenasCompletas = Math.floor(totalUnidades / 10);
-    const primerIndiceResto = decenasCompletas * 10;
-    
-    if (index >= primerIndiceResto && resto > 0) {
-      // Estamos en el resto: usar color según valor del resto
-      nuevoColor = getColorByValue(resto);
-    } else {
-    }
-    
-    bloque.units[unitData.unitIndex].color = nuevoColor;
-  });
-  
 };
 
-const GRID_SIZE = props.gridColumns; // Ancho máximo (para compatibilidad)
+const GRID_WIDTH  = props.gridColumns;
+const GRID_HEIGHT = props.gridRows;
+
 // ===== CELL SIZE ADAPTATIVO =====
 const MAX_CELL_SIZE = 45;
 const MIN_CELL_SIZE = 16;
@@ -517,111 +340,34 @@ const onResize = () => {
   viewportH.value = window.innerHeight;
   borderStyleCache.clear();
 };
-const GRID_WIDTH = props.gridColumns; 
-const GRID_HEIGHT = props.gridRows; 
 
-// ===== CONFIGURACIÓN DE VISUALIZACIÓN =====
-// SHOW_COLUMN_NUMBERS eliminado - Ruler innecesario
-
-/**
- * Crea una matriz de cuadrantes para un bloque
- * @param {number} width - Ancho en cuadrantes
- * @param {number} height - Alto en cuadrantes
- * @param {number} offsetX - Posición X relativa al bloque
- * @param {number} offsetY - Posición Y relativa al bloque
- * @returns {Array} Array de cuadrantes con coordenadas relativas
- */
-const createQuadrants = (width, height, offsetX = 0, offsetY = 0) => {
-  const quadrants = [];
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      quadrants.push({
-        relX: x + offsetX,  // Posición relativa X dentro del bloque
-        relY: y + offsetY,  // Posición relativa Y dentro del bloque
-        value: 1            // Cada cuadrante vale 1
-      });
-    }
-  }
-  return quadrants;
-};
-
-/**
- * Crea un bloque con sistema de cuadrantes
- * @param {string} type - Tipo de bloque
- * @param {number} gridX - Posición X en el grid
- * @param {number} gridY - Posición Y en el grid
- * @param {number} id - ID único del bloque
- * @returns {Object} Bloque con cuadrantes
- */
-const createBlockWithQuadrants = (type, gridX, gridY, id) => {
-  const config = BLOCKS_CONFIG[type];
-  const quadrants = createQuadrants(config.width, config.height);
-  
-  // NUEVO: Generar unidades (cubitos 1x1) para el bloque
-  const units = generateUnitsForBlock(type, false);
-  
-  return {
-    id,
-    type,
-    gridX,
-    gridY,
-    value: config.value,
-    color: config.color,
-    rotated: false,
-    isConnected: false,
-    quadrants,  // Array de cuadrantes que componen este bloque
-    units,      // NUEVO: Array de unidades (cubitos 1x1)
-    // Dimensiones del bloque (para compatibilidad)
-    width: config.width,
-    height: config.height
-  };
-};
-
-/**
- * Obtiene las celdas del grid que ocupa un bloque (basado en cuadrantes)
- * @param {Object} shape - Bloque con cuadrantes
- * @returns {Array} Array de {x, y} posiciones absolutas en el grid
- */
-const getOccupiedCellsFromQuadrants = (shape) => {
-  if (!shape.quadrants) {
-    // Fallback para bloques antiguos sin cuadrantes
-    return getOccupiedCells(shape);
-  }
-  
-  return shape.quadrants.map(q => ({
-    x: shape.gridX + q.relX,
-    y: shape.gridY + q.relY
-  }));
-};
-
-/**
- * Corta un bloque en una posición específica
- * @param {Object} shape - Bloque a cortar
- * @param {Object} cutLine - Línea de corte {x1, y1, x2, y2}
- * @returns {Array} Array de dos nuevos bloques o null si no se puede cortar
- */
-// cutBlockByQuadrants ELIMINADO - Solo usamos bloques de 1x1
+// Crea un bloque 1x1
+const createBlock = (gridX, gridY, id) => ({
+  id,
+  type: 'uno',
+  gridX,
+  gridY,
+  value: 1,
+  color: BLOCK_COLOR,
+  isConnected: false,
+  width: 1,
+  height: 1,
+  units: generateUnit(),
+});
 
 // ===== ESTADO =====
-const blockMode = ref('unidades');
 const showOverlay = ref(false);
 const shapes = ref([]);
 const selectedShapeId = ref(null);
-const hoveredShapeId = ref(null); // Para mostrar tooltip en hover
 const draggingId = ref(null);
 const isDragging = ref(false);
-
 const dragStart = ref(null);
 const shapeGroups = ref([]);
 const cuttingMode = ref(false);
 const connections = ref([]);
-const cutDragStart = ref(null);
-const cutDragEnd = ref(null);
-const isCutDragging = ref(false);
 const connectionsToCut = ref([]);
-const cutTrailPoints = ref([]); // Rastro de puntos para la línea de corte
 
-// ===== TOAST NOTIFICATION =====
+// ===== TOAST =====
 const toastMessage = ref('');
 const showToast = ref(false);
 let toastTimer = null;
@@ -630,33 +376,17 @@ const showToastNotification = (message) => {
   toastMessage.value = message;
   showToast.value = true;
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    showToast.value = false;
-  }, 3000);
+  toastTimer = setTimeout(() => { showToast.value = false; }, 3000);
 };
-const alreadyCutConnections = ref(new Set()); // Rastrear conexiones ya cortadas en este trazo
 
-// Sistema de corte de bloques
-// Modo cortar bloques ELIMINADO - Solo usamos bloques de 1x1
-
-// Computed para líneas de corte disponibles - ELIMINADO
-// Computed availableCutLines ELIMINADO - No cortamos bloques
-
-// Sistema de Undo/Redo
+// ===== UNDO/REDO =====
 const history = ref([]);
 const currentStep = ref(-1);
-const maxHistorySize = 10; // Límite de pasos guardados
+const maxHistorySize = 10;
 
-// Cache para getBorderStyle
 const borderStyleCache = new Map();
-
-// Debounce timer
 let checkAdjacentTimer = null;
 let nextId = 1;
-
-const availableBlocks = computed(() => {
-  return blockMode.value === 'unidades' ? UNIDADES : DECENAS;
-});
 
 // ===== PERSISTENCIA =====
 const saveToStorage = () => {
@@ -672,64 +402,36 @@ const loadFromStorage = () => {
     const saved = localStorage.getItem('grid_blocks_data');
     if (saved) {
       const loadedShapes = JSON.parse(saved);
-      
-      // Migrar bloques antiguos a sistema de cuadrantes
-      const migratedShapes = loadedShapes.map(shape => {
-        if (!shape.quadrants && shape.type && BLOCKS_CONFIG[shape.type]) {
-          // Bloque antiguo sin cuadrantes - crear cuadrantes
-          const config = BLOCKS_CONFIG[shape.type];
-          return {
-            ...shape,
-            quadrants: createQuadrants(config.width, config.height),
-            width: config.width,
-            height: config.height
-          };
-        }
-        return shape;
+
+      // Normalizar bloques cargados al formato actual (1x1)
+      const normalized = loadedShapes.map(shape => ({
+        ...shape,
+        width: 1,
+        height: 1,
+        units: shape.units || generateUnit(),
+      }));
+
+      // Separar bloques dentro y fuera del grid actual
+      const inside = [];
+      const outside = [];
+      normalized.forEach(shape => {
+        const out = shape.gridX < 0 || shape.gridY < 0 ||
+          shape.gridX + 1 > GRID_WIDTH || shape.gridY + 1 > GRID_HEIGHT;
+        (out ? outside : inside).push(shape);
       });
-      
-      // NUEVO: Validar que todos los bloques estén dentro del grid actual
-      const blocksOutsideGrid = [];
-      const blocksInsideGrid = [];
-      
-      migratedShapes.forEach(shape => {
-        const dims = getShapeDimensions(shape);
-        const isOutside = 
-          shape.gridX < 0 || 
-          shape.gridY < 0 || 
-          shape.gridX + dims.width > GRID_WIDTH || 
-          shape.gridY + dims.height > GRID_HEIGHT;
-        
-        if (isOutside) {
-          blocksOutsideGrid.push(shape);
-        } else {
-          blocksInsideGrid.push(shape);
-        }
-      });
-      
-      // Reposicionar bloques que están fuera del grid
-      blocksOutsideGrid.forEach(shape => {
-        const dims = getShapeDimensions(shape);
-        const pos = findAvailablePosition(dims.width, dims.height);
-        
+
+      // Reubicar los que quedaron fuera
+      outside.forEach(shape => {
+        const pos = findAvailablePosition(1, 1);
         if (pos) {
-          shape.gridX = pos.x;
-          shape.gridY = pos.y;
-          blocksInsideGrid.push(shape);
+          inside.push({ ...shape, gridX: pos.x, gridY: pos.y });
         }
-        // Si no hay espacio, el bloque se pierde (no se agrega)
       });
-      
-      shapes.value = blocksInsideGrid;
-      
-      if (shapes.value.length > 0) {
+
+      shapes.value = inside;
+      if (shapes.value.length > 0)
         nextId = Math.max(...shapes.value.map(s => s.id), 0) + 1;
-      }
-      
-      // Registrar todos los bloques en RelationshipManager
-      shapes.value.forEach(shape => {
-      });
-      
+
       checkAdjacentBlocks();
     }
   } catch (e) {
@@ -739,18 +441,10 @@ const loadFromStorage = () => {
 
 // ===== UNDO/REDO =====
 const saveToHistory = () => {
-  // Guardar estado actual en el historial
   const currentState = JSON.parse(JSON.stringify(shapes.value));
-  
-  // Si estamos en medio del historial, eliminar los pasos futuros
-  if (currentStep.value < history.value.length - 1) {
+  if (currentStep.value < history.value.length - 1)
     history.value = history.value.slice(0, currentStep.value + 1);
-  }
-  
-  // Agregar nuevo estado
   history.value.push(currentState);
-  
-  // Limitar tamaño del historial
   if (history.value.length > maxHistorySize) {
     history.value.shift();
   } else {
@@ -761,14 +455,7 @@ const saveToHistory = () => {
 const undo = () => {
   if (currentStep.value > 0) {
     currentStep.value--;
-    
-    // Desregistrar todos los bloques actuales del RelationshipManager
-    
-    // Restaurar estado desde historial
     shapes.value = JSON.parse(JSON.stringify(history.value[currentStep.value]));
-    
-    // Registrar todos los bloques restaurados
-    
     checkAdjacentBlocksImmediate();
     saveToStorage();
   }
@@ -777,38 +464,17 @@ const undo = () => {
 const redo = () => {
   if (currentStep.value < history.value.length - 1) {
     currentStep.value++;
-    
-    // Desregistrar todos los bloques actuales del RelationshipManager
-    
-    // Restaurar estado desde historial
     shapes.value = JSON.parse(JSON.stringify(history.value[currentStep.value]));
-    
-    // Registrar todos los bloques restaurados
-    
     checkAdjacentBlocksImmediate();
     saveToStorage();
   }
 };
 
 // ===== UTILIDADES =====
-const getShapeDimensions = (shape) => {
-  // Si el bloque tiene dimensiones explícitas (bloques cortados), usarlas
-  if (shape.width !== undefined && shape.height !== undefined) {
-    return { width: shape.width, height: shape.height };
-  }
-  
-  // Si tiene cuadrantes pero no dimensiones, calcularlas
-  if (shape.quadrants && shape.quadrants.length > 0) {
-    const maxX = Math.max(...shape.quadrants.map(q => q.relX)) + 1;
-    const maxY = Math.max(...shape.quadrants.map(q => q.relY)) + 1;
-    return { width: maxX, height: maxY };
-  }
-  
-  // Fallback a BLOCKS_CONFIG
-  const config = BLOCKS_CONFIG[shape.type];
-  if (!config) return { width: 1, height: 1 };
-  return { width: config.width, height: config.height };
-};
+const getShapeDimensions = (shape) => ({
+  width:  shape.width  ?? 1,
+  height: shape.height ?? 1,
+});
 
 const getOccupiedCells = (shape) => {
   const cells = [];
@@ -1019,40 +685,24 @@ const checkAdjacentBlocksImmediate = () => {
 
   shapeGroups.value = groups;
 
-  // PRIMERO: Resetear colores de unidades a su color base
   shapes.value.forEach(shape => {
     if (shape.units) {
-      shape.units.forEach(unit => {
-        unit.color = unit.baseColor || unit.color;
-      });
+      shape.units.forEach(unit => { unit.color = unit.baseColor || unit.color; });
     }
   });
 
-  // SEGUNDO: Procesar cada grupo
   shapes.value.forEach(shape => {
     const group = groups.find(g => g.includes(shape.id));
     if (group) {
       shape.isConnected = true;
-      
-      // Calcular suma del grupo
       shape.groupSum = group.reduce((acc, id) => {
-        const s = shapes.value.find(block => block.id === id);
+        const s = shapes.value.find(b => b.id === id);
         return acc + (s ? s.value : 0);
       }, 0);
-      
-      // NUEVO: Colorear por unidades SIEMPRE que haya grupo
-      // Solo colorear una vez por grupo (evitar repetir)
-      const isFirstInGroup = group[0] === shape.id;
-      if (isFirstInGroup) {
-        colorearUnidadesDeGrupo(group);
-      }
-      
-      // Mantener groupColor para compatibilidad
-      shape.groupColor = getColorBySum(shape.groupSum);
+      if (group[0] === shape.id) colorearUnidadesDeGrupo(group);
     } else {
       shape.isConnected = false;
       shape.groupSum = null;
-      shape.groupColor = null;
     }
   });
   
@@ -1075,31 +725,6 @@ const checkAdjacentBlocks = () => {
     checkAdjacentBlocksImmediate();
   }, 50);
 };
-
-const getBlocksToShowNumber = computed(() => {
-  const toShow = new Set();
-  shapes.value.forEach(s => {
-    if (!s.isConnected) {
-      toShow.add(s.id);
-    }
-  });
-
-  shapeGroups.value.forEach(group => {
-    let bestId = null;
-    let minY = Infinity, minX = Infinity;
-    group.forEach(id => {
-      const s = shapes.value.find(block => block.id === id);
-      if (s && (s.gridY < minY || (s.gridY === minY && s.gridX < minX))) {
-        minY = s.gridY;
-        minX = s.gridX;
-        bestId = id;
-      }
-    });
-    if (bestId) toShow.add(bestId);
-  });
-
-  return toShow;
-});
 
 // ===== CONEXIONES =====
 const updateConnections = () => {
@@ -1225,90 +850,8 @@ const getConnectionsBetweenBlocks = (shape1Id, shape2Id) => {
   return connectionsList;
 };
 
-const lineIntersectsConnection = (dragStart, dragEnd, connection) => {
-  // Aumentar tolerancia para mejor detección
-  const tolerance = 15;
-  
-  // Definir la línea de corte del usuario
-  const x1 = dragStart.x;
-  const y1 = dragStart.y;
-  const x2 = dragEnd.x;
-  const y2 = dragEnd.y;
-  
-  // La línea de conexión ya tiene x1,y1,x2,y2
-  const connX1 = connection.x1;
-  const connY1 = connection.y1;
-  const connX2 = connection.x2;
-  const connY2 = connection.y2;
-  
-  // Calcular intersección real usando determinantes
-  const denominator = (x1 - x2) * (connY1 - connY2) - (y1 - y2) * (connX1 - connX2);
-  
-  // Si las líneas son paralelas, verificar distancia mínima
-  if (Math.abs(denominator) < 0.001) {
-    // Calcular distancia del punto medio de la línea de corte a la conexión
-    const midX = (x1 + x2) / 2;
-    const midY = (y1 + y2) / 2;
-    const connMidX = (connX1 + connX2) / 2;
-    const connMidY = (connY1 + connY2) / 2;
-    const dist = Math.sqrt(Math.pow(midX - connMidX, 2) + Math.pow(midY - connMidY, 2));
-    return dist < tolerance;
-  }
-  
-  const t = ((x1 - connX1) * (connY1 - connY2) - (y1 - connY1) * (connX1 - connX2)) / denominator;
-  const u = -((x1 - x2) * (y1 - connY1) - (y1 - y2) * (x1 - connX1)) / denominator;
-  
-  // Verificar si la intersección ocurre dentro de ambas líneas
-  // Ser más permisivo con los límites
-  if (t >= -0.1 && t <= 1.1 && u >= -0.1 && u <= 1.1) {
-    return true;
-  }
-  
-  // Verificar también distancia mínima entre las líneas
-  // Calcular distancia punto-línea para ambos extremos
-  const distStart1 = pointToLineDistance(x1, y1, connX1, connY1, connX2, connY2);
-  const distEnd1 = pointToLineDistance(x2, y2, connX1, connY1, connX2, connY2);
-  const distStart2 = pointToLineDistance(connX1, connY1, x1, y1, x2, y2);
-  const distEnd2 = pointToLineDistance(connX2, connY2, x1, y1, x2, y2);
-  
-  const minDist = Math.min(distStart1, distEnd1, distStart2, distEnd2);
-  return minDist < tolerance;
-};
-
 // Función auxiliar para calcular distancia de un punto a una línea
-const pointToLineDistance = (px, py, x1, y1, x2, y2) => {
-  const A = px - x1;
-  const B = py - y1;
-  const C = x2 - x1;
-  const D = y2 - y1;
-  
-  const dot = A * C + B * D;
-  const lenSq = C * C + D * D;
-  let param = -1;
-  
-  if (lenSq !== 0) {
-    param = dot / lenSq;
-  }
-  
-  let xx, yy;
-  
-  if (param < 0) {
-    xx = x1;
-    yy = y1;
-  } else if (param > 1) {
-    xx = x2;
-    yy = y2;
-  } else {
-    xx = x1 + param * C;
-    yy = y1 + param * D;
-  }
-  
-  const dx = px - xx;
-  const dy = py - yy;
-  return Math.sqrt(dx * dx + dy * dy);
-};
-
-// ===== SISTEMA DE DESACOPLAMIENTO CON SNAP-TO-LINE (NUEVO) =====
+// ===== DESACOPLAMIENTO (SNAP-TO-LINE) =====
 
 // Estado para el sistema de snap
 const snapToLineState = ref({
@@ -1323,7 +866,7 @@ const snapToLineState = ref({
 });
 
 /**
- * Desacopla dos bloques usando RelationshipManager
+ * Desacopla dos bloques
  * @param {Object} connection - Objeto con shape1Id y shape2Id
  */
 const cutConnection = (connection) => {
@@ -1603,75 +1146,6 @@ const handleSnapCutEnd = () => {
   };
 };
 
-const handleCutDragStart = (e, connection) => {
-  if (!cuttingMode.value) return;
-  e.stopPropagation();
-  e.preventDefault();
-  
-  const gridEl = document.querySelector('.blocks-layer-transparent');
-  if (!gridEl) return;
-  
-  const rect = gridEl.getBoundingClientRect();
-  
-  cutDragStart.value = { 
-    x: e.clientX - rect.left, 
-    y: e.clientY - rect.top, 
-    connection,
-    // Guardar qué vértice se agarró
-    startVertex: getClosestVertex(e.clientX - rect.left, e.clientY - rect.top, connection)
-  };
-  isCutDragging.value = false;
-};
-
-const handleCutDragMove = (e) => {
-  if (!cutDragStart.value) return;
-  
-  const gridEl = document.querySelector('.blocks-layer-transparent');
-  if (!gridEl) return;
-  
-  const rect = gridEl.getBoundingClientRect();
-  const currentX = e.clientX - rect.left;
-  const currentY = e.clientY - rect.top;
-  
-  isCutDragging.value = true;
-  cutDragEnd.value = { x: currentX, y: currentY };
-  
-  // Determinar el vértice objetivo (el opuesto al que agarraste)
-  const connection = cutDragStart.value.connection;
-  const targetVertex = cutDragStart.value.startVertex === 'start' 
-    ? { x: connection.x2, y: connection.y2 }
-    : { x: connection.x1, y: connection.y1 };
-  
-  // Verificar si el cursor está cerca del vértice objetivo
-  const distToTarget = Math.sqrt(
-    Math.pow(currentX - targetVertex.x, 2) + 
-    Math.pow(currentY - targetVertex.y, 2)
-  );
-  
-  // Si llegaste al vértice opuesto (dentro de 20px), marcar para cortar
-  if (distToTarget < 20) {
-    connectionsToCut.value = [connection];
-  } else {
-    connectionsToCut.value = [];
-  }
-};
-
-const handleCutDragEnd = () => {
-  // Solo cortar si llegaste al vértice opuesto
-  if (isCutDragging.value && connectionsToCut.value.length > 0) {
-    connectionsToCut.value.forEach(conn => {
-      cutConnection(conn);
-    });
-  }
-  
-  cutDragStart.value = null;
-  cutDragEnd.value = null;
-  isCutDragging.value = false;
-  connectionsToCut.value = [];
-  cutTrailPoints.value = [];
-  alreadyCutConnections.value.clear();
-};
-
 // ===== MOVIMIENTO GRUPAL =====
 const canMoveGroup = (groupIds, deltaX, deltaY) => {
   const groupIdSet = new Set(groupIds);
@@ -1771,74 +1245,38 @@ const findSnapPosition = (shape, targetX, targetY) => {
 };
 
 // ===== ACCIONES =====
-const addBlock = (blockType) => {
-  // Verificar límite máximo de bloques
+const addBlock = () => {
   if (shapes.value.length >= props.maxBloques) {
     showToastNotification(`Límite alcanzado: máximo ${props.maxBloques} bloques`);
     return;
   }
-  
-  const config = BLOCKS_CONFIG[blockType];
-  const pos = findAvailablePosition(config.width, config.height);
-  
+  const pos = findAvailablePosition(1, 1);
   if (!pos) {
     showToastNotification('¡No hay espacio disponible!');
     return;
   }
-  
-  // Crear bloque con sistema de cuadrantes
-  const newBlock = createBlockWithQuadrants(blockType, pos.x, pos.y, nextId++);
-  shapes.value.push(newBlock);
-  
-  // Registrar en RelationshipManager
-  
+  shapes.value.push(createBlock(pos.x, pos.y, nextId++));
   checkAdjacentBlocks();
-  saveToHistory(); // Guardar en historial
+  saveToHistory();
 };
 
 const toggleCuttingMode = () => {
   cuttingMode.value = !cuttingMode.value;
   selectedShapeId.value = null;
-  
-  // Modo cortar bloques ELIMINADO
-};
-
-// ===== CORTE DE BLOQUES =====
-// getShapeAtPosition ELIMINADO
-
-// handleBlockCutStart, handleBlockCutMove, handleBlockCutEnd ELIMINADOS
-
-// lineCrossesBlockInterior y lineIntersectsSegment ELIMINADOS
-
-// toggleBlockCuttingMode ELIMINADO
-
-const deleteShape = (id) => {
-  // Desregistrar del RelationshipManager
-  
-  shapes.value = shapes.value.filter(s => s.id !== id);
-  selectedShapeId.value = null;
-  checkAdjacentBlocks();
-  saveToHistory(); // Guardar en historial
 };
 
 const clearAll = () => {
-  // Limpiar RelationshipManager
-  
   shapes.value = [];
   selectedShapeId.value = null;
   shapeGroups.value = [];
   connections.value = [];
   saveToStorage();
-  saveToHistory(); // Guardar en historial
+  saveToHistory();
 };
 
 // ===== EVENT HANDLERS =====
 const handleBlockMouseDown = (e, shapeId) => {
-  // Si está en modo cortar conexiones, ignorar
   if (cuttingMode.value) return;
-  
-  // Modo cortar bloques ELIMINADO
-  
   e.stopPropagation();
   e.preventDefault(); // Evitar selección de texto
   selectedShapeId.value = shapeId;
@@ -2004,14 +1442,6 @@ const wouldExceedUnitLimitByDelta = (movingBlockIds, initialPositions, deltaX, d
 };
 
 // Alias para compatibilidad con llamadas anteriores
-const wouldExceedUnitLimit = (movingBlockIds, snapX, snapY) => {
-  const currentDragStart = dragStart.value;
-  if (!currentDragStart) return { valid: true, totalUnits: 0, message: '' };
-  const deltaX = snapX - currentDragStart.anchorX;
-  const deltaY = snapY - currentDragStart.anchorY;
-  return wouldExceedUnitLimitByDelta(movingBlockIds, currentDragStart.initialPositions, deltaX, deltaY);
-};
-
 const handleMouseUp = () => {
   const wasDrawing = isDragging.value;
   const currentDragStart = dragStart.value;
@@ -2119,213 +1549,96 @@ const handleGridCanvasClick = (e) => {
 };
 
 const handleCutModeMouseDown = (e) => {
-  // Si está en modo cortar conexiones (con snap)
   if (cuttingMode.value) {
     e.stopPropagation();
     e.preventDefault();
     handleSnapCutStart(e);
-    return;
   }
-  
-  // Modo corte de bloques ELIMINADO
 };
 
 const toggleOverlay = () => showOverlay.value = !showOverlay.value;
-const closeOverlay = () => showOverlay.value = false;
-const selectTool = (tool) => addBlock(tool);
+const closeOverlay  = () => showOverlay.value = false;
 
-// NUEVO: Dispersar bloques aleatorios en el grid
+// ===== HELPERS DE POSICIONAMIENTO ALEATORIO =====
+const makeOccupancyTracker = () => {
+  const occupied = new Set();
+  const isFree = (x, y) => {
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const cx = x + dx, cy = y + dy;
+        if (cx < 0 || cx >= GRID_WIDTH || cy < 0 || cy >= GRID_HEIGHT) continue;
+        if (occupied.has(`${cx},${cy}`)) return false;
+      }
+    return true;
+  };
+  const mark = (x, y) => {
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const cx = x + dx, cy = y + dy;
+        if (cx >= 0 && cx < GRID_WIDTH && cy >= 0 && cy < GRID_HEIGHT)
+          occupied.add(`${cx},${cy}`);
+      }
+  };
+  return { isFree, mark };
+};
+
+const randomPos = () => ({
+  x: Math.floor(Math.random() * GRID_WIDTH),
+  y: Math.floor(Math.random() * GRID_HEIGHT),
+});
+
 const spawnRandomBlocks = () => {
-  
-  // 1. Verificar si hay bloques
-  const hasBlocks = shapes.value.length > 0;
-  
-  if (hasBlocks) {
-    // CASO A: HAY BLOQUES → Mezclar posiciones sin cambiar estructura
-    
-    const blocksToShuffle = [...shapes.value];
-    const shuffledPositions = [];
-    
-    // Crear grid temporal para tracking de ocupación
-    const occupied = new Set();
-    
-    // Función helper para verificar si una posición está libre (CON BUFFER de 1 celda)
-    const isPositionFree = (x, y, width, height) => {
-      // Verificar no solo el bloque, sino también 1 celda alrededor (buffer)
-      for (let dy = -1; dy <= height; dy++) {
-        for (let dx = -1; dx <= width; dx++) {
-          const checkX = x + dx;
-          const checkY = y + dy;
-          
-          // Verificar límites del grid
-          if (checkX < 0 || checkX >= GRID_WIDTH || checkY < 0 || checkY >= GRID_HEIGHT) {
-            // Si el buffer sale del grid, no es problema para las celdas fuera
-            // Solo verificar que el bloque mismo esté dentro
-            if (dx >= 0 && dx < width && dy >= 0 && dy < height) {
-              return false; // El bloque sale del grid
-            }
-            continue;
-          }
-          
-          const key = `${checkX},${checkY}`;
-          if (occupied.has(key)) return false; // Hay algo en el buffer
-        }
-      }
-      return true;
-    };
-    
-    // Función helper para marcar posición como ocupada (CON BUFFER de 1 celda)
-    const markOccupied = (x, y, width, height) => {
-      // Marcar el bloque Y 1 celda alrededor
-      for (let dy = -1; dy <= height; dy++) {
-        for (let dx = -1; dx <= width; dx++) {
-          const markX = x + dx;
-          const markY = y + dy;
-          
-          // Solo marcar dentro del grid
-          if (markX >= 0 && markX < GRID_WIDTH && markY >= 0 && markY < GRID_HEIGHT) {
-            occupied.add(`${markX},${markY}`);
-          }
-        }
-      }
-    };
-    
-    // Generar posiciones aleatorias únicas para cada bloque
-    blocksToShuffle.forEach(block => {
-      const dims = getShapeDimensions(block);
+  if (shapes.value.length > 0) {
+    // Hay bloques: redistribuir posiciones aleatoriamente
+    const { isFree, mark } = makeOccupancyTracker();
+    const newPositions = [];
+
+    shapes.value.forEach(block => {
       let placed = false;
-      let attempts = 0;
-      const maxAttempts = 200;
-      
-      while (!placed && attempts < maxAttempts) {
-        attempts++;
-        
-        // Posición aleatoria
-        const gridX = Math.floor(Math.random() * (GRID_WIDTH - dims.width + 1));
-        const gridY = Math.floor(Math.random() * (GRID_HEIGHT - dims.height + 1));
-        
-        // Verificar que no colisione con bloques ya colocados
-        if (isPositionFree(gridX, gridY, dims.width, dims.height)) {
-          shuffledPositions.push({ blockId: block.id, gridX, gridY });
-          markOccupied(gridX, gridY, dims.width, dims.height);
+      for (let i = 0; i < 200 && !placed; i++) {
+        const { x, y } = randomPos();
+        if (isFree(x, y)) {
+          newPositions.push({ id: block.id, x, y });
+          mark(x, y);
           placed = true;
         }
       }
-      
-      if (!placed) {
-        // Si no encuentra espacio, mantener posición original
-        shuffledPositions.push({ blockId: block.id, gridX: block.gridX, gridY: block.gridY });
-      }
+      if (!placed) newPositions.push({ id: block.id, x: block.gridX, y: block.gridY });
     });
-    
-    // Aplicar nuevas posiciones
-    shuffledPositions.forEach(pos => {
-      const block = shapes.value.find(s => s.id === pos.blockId);
-      if (block) {
-        block.gridX = pos.gridX;
-        block.gridY = pos.gridY;
-      }
+
+    newPositions.forEach(({ id, x, y }) => {
+      const block = shapes.value.find(s => s.id === id);
+      if (block) { block.gridX = x; block.gridY = y; }
     });
-    
-    
+
   } else {
-    // CASO B: VACÍO → Generar bloques nuevos aleatorios
-    const desiredBlocks = props.cantidadBl
-    const numBlocks = Math.min(desiredBlocks, props.maxBloques); // Respetar límite
-    const maxValue = Math.min(1, props.bloquesbarra); // Respetar bloques disponibles
-    
-    
-    // Crear grid temporal para tracking de ocupación (con buffer)
-    const occupied = new Set();
-    
-    // Función helper para verificar si una posición está libre (CON BUFFER de 1 celda)
-    const isPositionFree = (x, y, width, height) => {
-      // Verificar no solo el bloque, sino también 1 celda alrededor (buffer)
-      for (let dy = -1; dy <= height; dy++) {
-        for (let dx = -1; dx <= width; dx++) {
-          const checkX = x + dx;
-          const checkY = y + dy;
-          
-          // Verificar límites del grid
-          if (checkX < 0 || checkX >= GRID_WIDTH || checkY < 0 || checkY >= GRID_HEIGHT) {
-            // Si el buffer sale del grid, no es problema para las celdas fuera
-            // Solo verificar que el bloque mismo esté dentro
-            if (dx >= 0 && dx < width && dy >= 0 && dy < height) {
-              return false; // El bloque sale del grid
-            }
-            continue;
-          }
-          
-          const key = `${checkX},${checkY}`;
-          if (occupied.has(key)) return false; // Hay algo en el buffer
-        }
-      }
-      return true;
-    };
-    
-    // Función helper para marcar posición como ocupada (CON BUFFER de 1 celda)
-    const markOccupied = (x, y, width, height) => {
-      // Marcar el bloque Y 1 celda alrededor
-      for (let dy = -1; dy <= height; dy++) {
-        for (let dx = -1; dx <= width; dx++) {
-          const markX = x + dx;
-          const markY = y + dy;
-          
-          // Solo marcar dentro del grid
-          if (markX >= 0 && markX < GRID_WIDTH && markY >= 0 && markY < GRID_HEIGHT) {
-            occupied.add(`${markX},${markY}`);
-          }
-        }
-      }
-    };
-    
-    let created = 0;
-    let attempts = 0;
-    const maxAttempts = numBlocks * 50;
-    
-    while (created < numBlocks && attempts < maxAttempts) {
+    // Grid vacío: generar bloques nuevos
+    const numBlocks = Math.min(props.cantidadBl, props.maxBloques);
+    const { isFree, mark } = makeOccupancyTracker();
+    let created = 0, attempts = 0;
+
+    while (created < numBlocks && attempts < numBlocks * 50) {
       attempts++;
-      
-      const value = 1 + Math.floor(Math.random() * maxValue);
-      const blockTypes = ['uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis'];
-      const blockType = blockTypes[value - 1];
-      
-      if (!BLOCKS_CONFIG[blockType]) continue;
-      
-      const config = BLOCKS_CONFIG[blockType];
-      
-      // Posición aleatoria
-      const gridX = Math.floor(Math.random() * (GRID_WIDTH - config.width + 1));
-      const gridY = Math.floor(Math.random() * (GRID_HEIGHT - config.height + 1));
-      
-      // Verificar que esté disponible (con buffer)
-      if (!isPositionFree(gridX, gridY, config.width, config.height)) {
-        continue;
-      }
-      
-      // Crear bloque usando la función existente
-      const newBlock = createBlockWithQuadrants(blockType, gridX, gridY, nextId++);
-      
-      shapes.value.push(newBlock);
-      markOccupied(gridX, gridY, config.width, config.height);
+      const { x, y } = randomPos();
+      if (!isFree(x, y)) continue;
+      shapes.value.push(createBlock(x, y, nextId++));
+      mark(x, y);
       created++;
     }
-    
   }
-  
-  // Verificar acoplamientos
+
   checkAdjacentBlocks();
   saveToHistory();
 };
 
 // ===== LIFECYCLE =====
 const handleKeyDown = (e) => {
-  // Ctrl+Z o Cmd+Z para Undo
+
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
     e.preventDefault();
     undo();
   }
-  // Ctrl+Y o Ctrl+Shift+Z o Cmd+Shift+Z para Redo
+
   if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
     e.preventDefault();
     redo();
@@ -2402,7 +1715,7 @@ const createInitialBlocks = () => {
       if (occupied.has(`${x},${y}`)) continue;
       if (!isPositionAvailable(x, y, 1, 1, null)) continue;
 
-      const newBlock = createBlockWithQuadrants('uno', x, y, nextId++);
+      const newBlock = createBlock(x, y, nextId++);
       shapes.value.push(newBlock);
       markCell(x, y);
       placed++;
@@ -2425,28 +1738,32 @@ const createInitialBlocks = () => {
 };
 
 onMounted(() => {
-  loadFromStorage();
-  saveToHistory(); // Guardar estado inicial
-  
-  // NUEVO: Crear bloques iniciales si se proporciona initialBlocks
+  if (_hasBeenMounted) {
+    loadFromStorage();
+  } else {
+    localStorage.removeItem('grid_blocks_data');
+    _hasBeenMounted = true;
+  }
+  saveToHistory();
+
   if (props.initialBlocks && props.initialBlocks.length > 0) {
     createInitialBlocks();
   }
   
-  // Event listeners para drag & drop de bloques
+
   document.addEventListener('mousemove', handleMouseMove);
   document.addEventListener('mouseup', handleMouseUp);
   
-  // Event listeners para cortar conexiones (modo ✂️)
+
   document.addEventListener('mousemove', handleSnapCutMove);
   document.addEventListener('mouseup', handleSnapCutEnd);
   
-  // Resize adaptativo
+
   window.addEventListener('resize', onResize);
   
-  // Event listeners para cortar bloques ELIMINADO
+
   
-  // Keyboard shortcuts
+
   document.addEventListener('keydown', handleKeyDown);
 });
 
@@ -2470,7 +1787,7 @@ onUnmounted(() => {
       <!-- Barra flotante de herramientas -->
       <div class="floating-toolbar" @click.stop>
         <button
-          @click="selectTool('uno')"
+          @click="addBlock()"
           class="tool-btn tool-btn--add"
           :style="{ backgroundColor: BLOCKS_CONFIG['uno'].color }"
           title="Agregar bloque"
@@ -2518,7 +1835,7 @@ onUnmounted(() => {
       </div>
 
       <div class="grid-container">
-        <!-- Ruler ELIMINADO -->
+
         
         <div class="grid-center" @click.stop @mousedown.capture="handleCutModeMouseDown">
           <div 
@@ -2545,8 +1862,6 @@ onUnmounted(() => {
               v-for="shape in shapes"
               :key="shape.id"
               @mousedown="handleBlockMouseDown($event, shape.id)"
-              @mouseenter="!cuttingMode && (hoveredShapeId = shape.id)"
-              @mouseleave="hoveredShapeId = null"
               :class="{
                 'block-transparent': true,
                 'block-dragging': draggingId === shape.id,
@@ -2561,12 +1876,9 @@ onUnmounted(() => {
                 width: (getShapeDimensions(shape).width * CELL_SIZE) + 'px',
                 height: (getShapeDimensions(shape).height * CELL_SIZE) + 'px',
                 position: 'absolute',
-                backgroundColor: !shape.units ? (shape.isConnected ? (shape.groupColor || '#64748b') : (shape.color || '#64748b')) : 'transparent'
+                backgroundColor: 'transparent'
               }"
             >
-              <!-- Tooltip ELIMINADO - Innecesario -->
-              
-              <!-- NUEVO: Renderizar cubitos individuales SI tiene units -->
               <template v-if="shape.units && shape.units.length > 0">
                 <div
                   v-for="(unit, unitIndex) in shape.units"
@@ -2594,163 +1906,70 @@ onUnmounted(() => {
                   pointerEvents: 'none'
                 }"
               ></div>
-              
-              <!-- Botón eliminar ELIMINADO -->
-            </div>
 
+            </div>
+          </div>
+
+          <!-- SVGs de corte: dentro de grid-center pero con overflow visible -->
+          <template v-if="cuttingMode">
             <svg
-              v-if="cuttingMode"
               class="connections-layer"
               :style="{
                 position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
+                top: 0, left: 0,
+                width: (GRID_WIDTH * CELL_SIZE) + 'px',
+                height: (GRID_HEIGHT * CELL_SIZE) + 'px',
+                overflow: 'visible',
                 pointerEvents: 'none',
-                zIndex: 15
+                zIndex: 50
               }"
             >
-              <defs>
-                <filter id="glow">
-                  <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
-                  <feMerge>
-                    <feMergeNode in="coloredBlur"/>
-                    <feMergeNode in="SourceGraphic"/>
-                  </feMerge>
-                </filter>
-              </defs>
-              
               <g v-for="(conn, idx) in connections" :key="`conn-${idx}`">
                 <line
-                  :x1="conn.x1"
-                  :y1="conn.y1"
-                  :x2="conn.x2"
-                  :y2="conn.y2"
-                  stroke="rgba(236, 72, 153, 0.3)"
-                  stroke-width="8"
-                  stroke-linecap="round"
-                  style="pointer-events: stroke; cursor: crosshair;"
-                  @mousedown="handleCutDragStart($event, conn)"
-                />
-                
-                <line
-                  :x1="conn.x1"
-                  :y1="conn.y1"
-                  :x2="conn.x2"
-                  :y2="conn.y2"
+                  :x1="conn.x1" :y1="conn.y1"
+                  :x2="conn.x2" :y2="conn.y2"
                   :stroke="connectionsToCut.includes(conn) ? '#be185d' : '#ec4899'"
                   :stroke-width="connectionsToCut.includes(conn) ? '6' : '4'"
                   stroke-dasharray="8,4"
                   stroke-linecap="round"
                   :class="['cut-line', { 'cut-line-active': connectionsToCut.includes(conn) }]"
-                  :filter="connectionsToCut.includes(conn) ? 'url(#glow)' : 'none'"
-                  style="pointer-events: stroke; cursor: crosshair;"
-                  @mousedown="handleCutDragStart($event, conn)"
                 />
-                
                 <circle
-                  :cx="conn.x1"
-                  :cy="conn.y1"
+                  :cx="conn.x1" :cy="conn.y1"
                   :r="connectionsToCut.includes(conn) ? '6' : '4'"
                   :fill="connectionsToCut.includes(conn) ? '#be185d' : '#ec4899'"
-                  :class="['cut-circle', { 'cut-circle-active': connectionsToCut.includes(conn) }]"
-                  :filter="connectionsToCut.includes(conn) ? 'url(#glow)' : 'none'"
-                  style="pointer-events: all; cursor: pointer;"
-                  @mousedown="handleCutDragStart($event, conn)"
                 />
-                
                 <circle
-                  :cx="conn.x2"
-                  :cy="conn.y2"
+                  :cx="conn.x2" :cy="conn.y2"
                   :r="connectionsToCut.includes(conn) ? '6' : '4'"
                   :fill="connectionsToCut.includes(conn) ? '#be185d' : '#ec4899'"
-                  :class="['cut-circle', { 'cut-circle-active': connectionsToCut.includes(conn) }]"
-                  :filter="connectionsToCut.includes(conn) ? 'url(#glow)' : 'none'"
-                  style="pointer-events: all; cursor: pointer;"
-                  @mousedown="handleCutDragStart($event, conn)"
                 />
               </g>
             </svg>
 
-            <!-- Línea visual de vértice a vértice -->
-            <svg
-              v-if="isCutDragging && cutDragStart && cutDragEnd"
-              class="cut-drag-line"
-              :style="{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                pointerEvents: 'none',
-                zIndex: 30
-              }"
-            >
-              <defs>
-                <filter id="dragGlow">
-                  <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
-                  <feMerge>
-                    <feMergeNode in="coloredBlur"/>
-                    <feMergeNode in="SourceGraphic"/>
-                  </feMerge>
-                </filter>
-              </defs>
-              
-              <!-- Línea desde vértice inicial hasta cursor -->
-              <line
-                :x1="cutDragStart.x"
-                :y1="cutDragStart.y"
-                :x2="cutDragEnd.x"
-                :y2="cutDragEnd.y"
-                stroke="rgba(190, 24, 93, 0.3)"
-                stroke-width="8"
-                stroke-linecap="round"
-              />
-              
-              <line
-                :x1="cutDragStart.x"
-                :y1="cutDragStart.y"
-                :x2="cutDragEnd.x"
-                :y2="cutDragEnd.y"
-                :stroke="connectionsToCut.length > 0 ? '#10b981' : '#be185d'"
-                stroke-width="4"
-                stroke-dasharray="10,5"
-                stroke-linecap="round"
-                :filter="connectionsToCut.length > 0 ? 'url(#dragGlow)' : 'none'"
-                class="drag-line-animated"
-              />
-            </svg>
-
-            <!-- SVG para snap-to-line (cortar conexiones con seguimiento) -->
             <svg
               v-if="snapToLineState.active && snapToLineState.currentConnection"
               class="snap-cut-visualization"
               :style="{
                 position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
+                top: 0, left: 0,
+                width: (GRID_WIDTH * CELL_SIZE) + 'px',
+                height: (GRID_HEIGHT * CELL_SIZE) + 'px',
+                overflow: 'visible',
                 pointerEvents: 'none',
-                zIndex: 45
+                zIndex: 55
               }"
             >
-              <!-- Conexión completa (gris = no cortada, verde = cortada) -->
               <line
                 v-for="conn in connections"
                 :key="`conn-${conn.shape1Id}-${conn.shape2Id}`"
-                :x1="conn.x1"
-                :y1="conn.y1"
-                :x2="conn.x2"
-                :y2="conn.y2"
+                :x1="conn.x1" :y1="conn.y1"
+                :x2="conn.x2" :y2="conn.y2"
                 :stroke="isConnectionCut(conn) ? '#10b981' : '#94a3b8'"
                 :stroke-width="isConnectionCut(conn) ? 6 : 3"
                 stroke-linecap="round"
                 :opacity="isConnectionCut(conn) ? 0.9 : 0.3"
               />
-              
-              <!-- Conexión activa (resaltada - cambia a verde si llegó al vértice) -->
               <line
                 v-if="snapToLineState.currentConnection"
                 :x1="snapToLineState.currentConnection.x1"
@@ -2762,9 +1981,6 @@ onUnmounted(() => {
                 stroke-linecap="round"
                 :opacity="snapToLineState.reachedOppositeVertex ? 0.9 : 0.6"
               />
-              
-              
-              <!-- Cursor snapeado (círculo - verde si llegó al vértice) -->
               <circle
                 v-if="snapToLineState.snappedPosition"
                 :cx="snapToLineState.snappedPosition.x"
@@ -2783,11 +1999,9 @@ onUnmounted(() => {
                   repeatCount="indefinite"
                 />
               </circle>
-              
             </svg>
+          </template>
 
-            <!-- SVG de corte de bloques ELIMINADO - Solo usamos bloques de 1x1 -->
-          </div>
         </div>
       </div>
     </div>
@@ -2888,8 +2102,7 @@ onUnmounted(() => {
   border-radius: 8px;
   padding: 0;
   box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.15);
-  /* width y height dinámicos via :style en template */
-  overflow: hidden;
+  overflow: visible;
 }
 
 .cutting-cursor {
@@ -2988,7 +2201,7 @@ onUnmounted(() => {
   }
 }
 
-/* NUEVO: Estilos para cubitos unitarios */
+/* ===== CUBITOS UNITARIOS ===== */
 .unit-cube {
   display: flex;
   align-items: center;
@@ -3122,65 +2335,23 @@ onUnmounted(() => {
 }
 
 .cut-line {
-  transition: all 0.2s ease;
   animation: dash 1.5s linear infinite;
-}
-
-.cut-line:hover {
-  stroke-width: 5 !important;
-  stroke: #f472b6 !important;
-}
-
-.cut-circle {
-  transition: all 0.2s ease;
-}
-
-.cut-circle:hover {
-  fill: #f472b6;
-  opacity: 1;
-}
-
-.cut-circle-active {
-  animation: pulse-circle 0.6s ease-in-out infinite;
-}
-
-.drag-line-animated {
-  animation: dash 1s linear infinite;
-}
-
-@keyframes dash {
-  to {
-    stroke-dashoffset: -24;
-  }
-}
-
-@keyframes pulse-circle {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.6;
-  }
 }
 
 .cut-line-active {
   stroke-width: 7 !important;
-  animation: dash 0.8s linear infinite, pulse-line 0.6s ease-in-out infinite !important;
+  animation: dash 0.8s linear infinite !important;
 }
 
-@keyframes pulse-line {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.7;
-  }
+@keyframes dash {
+  to { stroke-dashoffset: -24; }
 }
 
 /* ===== BARRA FLOTANTE DE HERRAMIENTAS ===== */
 .floating-toolbar {
   position: fixed;
   bottom: 1.5rem;
+  right: 1.5rem;
   z-index: 2000;
   display: flex;
   align-items: center;
