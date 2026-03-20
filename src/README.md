@@ -37,7 +37,7 @@ It is intended as an educational tool for exploring unit grouping and place valu
 | `maxPorGrupo` | `Number` | `Infinity` | Maximum units allowed in a single connected group |
 | `cantidadBl` | `Number` | `10` | Number of blocks generated when shuffling an empty grid |
 | `initialBlocks` | `Array<Number>` | `[]` | Pre-loads blocks on first mount. Each number is a group count placed in a different zone of the grid. See below. |
-| `showToolbar` | `Boolean` | `true` | Shows or hides the floating action toolbar (+1, 🔀, ✂️, ↶, ↷, 🗑️) |
+| `showToolbar` | `Boolean` | `true` | Shows or hides the action toolbar (+1, 🔀, ✂️, ↶, ↷, 🗑️) |
 
 ### `initialBlocks` layout
 
