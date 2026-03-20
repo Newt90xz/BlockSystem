@@ -58,7 +58,25 @@
             <span class="hint">Ej: "3,5,2" = 10 bloques</span>
           </div>
 
-          <button type="submit" class="btn-start">
+          <div class="form-toggle">
+            <label class="toggle-label">
+              <span>Barra de herramientas</span>
+              <button
+                type="button"
+                class="toggle-btn"
+                :class="{ 'toggle-btn--on': config.showToolbar }"
+                @click="config.showToolbar = !config.showToolbar"
+              >
+                <span class="toggle-knob"></span>
+              </button>
+            </label>
+          </div>
+
+          <p v-if="startBlocked" class="toolbar-warning">
+            Ingresá bloques iniciales para continuar sin barra de herramientas.
+          </p>
+
+          <button type="submit" class="btn-start" :disabled="startBlocked">
             Iniciar
           </button>
         </form>
@@ -80,6 +98,7 @@
         :maxBloques="activeConfig.maxBloques"
         :maxPorGrupo="activeConfig.maxUnitsPerGroup"
         :initialBlocks="activeInitialBlocks"
+        :showToolbar="activeConfig.showToolbar"
       />
     </div>
 
@@ -136,19 +155,38 @@
             </div>
 
             <div class="form-group-full">
-              <label>Bloques Iniciales</label>
+              <label>Bloques Iniciales <span class="optional">(Recomendado)</span></label>
               <input 
                 type="text" 
                 v-model="draftInitialBlocksInput"
                 placeholder="3,5,2"
               />
-              <span class="hint">Ej: "3,5,2" = 10 bloques </span>
+              <span class="hint">Ej: "3,5,2" = 10 bloques · Dejar vacío para no cambiar</span>
+            </div>
+
+            <div class="form-toggle">
+              <label class="toggle-label">
+                <span>Barra de herramientas</span>
+                <button
+                  type="button"
+                  class="toggle-btn"
+                  :class="{ 'toggle-btn--on': draftConfig.showToolbar }"
+                  @click="draftConfig.showToolbar = !draftConfig.showToolbar"
+                >
+                  <span class="toggle-knob"></span>
+                </button>
+              </label>
             </div>
           </div>
 
           <div class="modal-footer">
-            <button class="btn-cancel" @click="closeParamsModal">Cancelar</button>
-            <button class="btn-apply" @click="applyParams">Aplicar y Recargar</button>
+            <p v-if="applyBlocked" class="toolbar-warning toolbar-warning--modal">
+              Ingresá bloques iniciales para continuar.
+            </p>
+            <div class="modal-footer-buttons">
+              <button class="btn-cancel" @click="closeParamsModal">Cancelar</button>
+              <button class="btn-apply" @click="applyParams" :disabled="applyBlocked">Aplicar y Recargar</button>
+            </div>
           </div>
         </div>
       </div>
@@ -170,12 +208,12 @@ const config = ref({
   gridRows: 7,
   maxBloques: 20,
   maxUnitsPerGroup: 5,
+  showToolbar: true,
 });
 
 const activeConfig = ref({ ...config.value });
 const activeInitialBlocks = ref([]);
 
-// Borrador para el modal (se edita sin afectar el juego hasta Aplicar)
 const draftConfig = ref({ ...config.value });
 const draftInitialBlocksInput = ref('');
 
@@ -197,6 +235,15 @@ const parseDraftInitialBlocks = () => {
     .map(n => parseInt(n.trim()))
     .filter(n => !isNaN(n) && n > 0);
 };
+
+// Validación: si no hay toolbar, debe haber bloques iniciales
+const startBlocked = computed(() =>
+  !config.value.showToolbar && !initialBlocksInput.value.trim()
+);
+
+const applyBlocked = computed(() =>
+  !draftConfig.value.showToolbar && !draftInitialBlocksInput.value.trim()
+);
 
 const startGame = () => {
   activeConfig.value = { ...config.value };
@@ -328,6 +375,56 @@ const applyParams = () => {
   color: #94a3b8;
 }
 
+.form-toggle {
+  display: flex;
+  align-items: center;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-btn {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: #e2e8f0;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.toggle-btn--on {
+  background: #667eea;
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  display: block;
+}
+
+.toggle-btn--on .toggle-knob {
+  transform: translateX(20px);
+}
+
 .btn-start {
   padding: 0.875rem;
   background: linear-gradient(135deg, #69ae60 0%, #69ae60 100%);
@@ -340,6 +437,33 @@ const applyParams = () => {
   transition: transform 0.2s, box-shadow 0.2s;
   margin-top: 0.5rem;
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.btn-start:disabled,
+.btn-apply:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.toolbar-warning {
+  font-size: 0.78rem;
+  color: #f59e0b;
+  font-weight: 500;
+  margin: 0.25rem 0 0;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.toolbar-warning::before {
+  content: '⚠️';
+  font-size: 0.85rem;
+}
+
+.toolbar-warning--modal {
+  padding: 0 0 0.25rem;
 }
 
 .btn-start:hover {
@@ -444,9 +568,15 @@ const applyParams = () => {
 
 .modal-footer {
   display: flex;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 0.5rem;
   padding: 0.75rem 1.5rem 1.25rem;
   border-top: 1px solid #f1f5f9;
+}
+
+.modal-footer-buttons {
+  display: flex;
+  gap: 0.75rem;
 }
 
 .btn-cancel {

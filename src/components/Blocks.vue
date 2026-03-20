@@ -9,6 +9,7 @@ const props = defineProps({
   gridColumns:  { type: Number, default: 20 },
   gridRows:     { type: Number, default: 15 },
   initialBlocks: { type: Array, default: () => [] },
+  showToolbar:  { type: Boolean, default: true },
 });
 
 // Verdadero después del primer montaje — distingue recarga de página (false) de remount por parámetros (true)
@@ -1817,7 +1818,7 @@ onUnmounted(() => {
 
     <div v-if="showOverlay" class="grid-fullscreen" @click="handleGridCanvasClick">
       <!-- Barra flotante de herramientas -->
-      <div class="floating-toolbar" @click.stop>
+      <div v-if="showToolbar" class="floating-toolbar" @click.stop>
         <button
           @click="addBlock()"
           class="tool-btn tool-btn--add"
