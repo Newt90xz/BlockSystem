@@ -1,6 +1,8 @@
 # src
 
-This folder contains the full application source. The core of the project is `components/Blocks.vue`. `App.vue` is a working example of how to integrate it.
+This folder contains the full application source. The core of the project is `components/Blocks.vue`. 
+
+`App.vue` is a working example of how to integrate it.
 
 ---
 
