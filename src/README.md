@@ -19,7 +19,9 @@ It is intended as an educational tool for exploring unit grouping and place valu
 - Shuffle blocks into random positions (🔀)
 - Full undo / redo support (↶ ↷) and keyboard shortcuts (`Ctrl+Z`, `Ctrl+Y`)
 - Grid cell size adapts automatically to the viewport
-- State is persisted in `localStorage` across sessions
+- Grid can be dragged freely within the overlay using the title bar
+- State is persisted in `localStorage` across sessions; cleared on full page reload
+- Toolbar can be hidden via prop for a read-only or restricted experience
 
 ---
 
@@ -33,6 +35,7 @@ It is intended as an educational tool for exploring unit grouping and place valu
 | `maxPorGrupo` | `Number` | `Infinity` | Maximum units allowed in a single connected group |
 | `cantidadBl` | `Number` | `10` | Number of blocks generated when shuffling an empty grid |
 | `initialBlocks` | `Array<Number>` | `[]` | Pre-loads blocks on first mount. Each number is a group count placed in a different zone of the grid. See below. |
+| `showToolbar` | `Boolean` | `true` | Shows or hides the floating action toolbar (+1, 🔀, ✂️, ↶, ↷, 🗑️) |
 
 ### `initialBlocks` layout
 
@@ -50,6 +53,8 @@ The array defines how many blocks go in each zone, distributed across the grid b
 <!-- 3 blocks on top, 5 on the bottom-left, 2 on the bottom-right -->
 <Blocks :initialBlocks="[3, 5, 2]" />
 ```
+
+> If `showToolbar` is `false`, `initialBlocks` must be provided — otherwise there is no way to add blocks to the grid.
 
 ---
 
@@ -87,7 +92,11 @@ Activating scissors mode shows dashed pink lines between all connected block pai
 
 `App.vue` is a reference implementation that wraps `Blocks.vue` with a configuration UI. It exists to demonstrate integration and for testing purposes.
 
-It provides a setup screen where grid dimensions, block limits, and initial blocks are configured before starting, and a settings modal (⚙️) that can be opened at any time to adjust parameters and reload the grid without navigating away.
+It provides:
+
+- A setup screen where grid dimensions, block limits, initial blocks, and toolbar visibility are configured before starting
+- A settings modal (⚙️) that can be opened at any time to adjust parameters and reload the grid without navigating away
+- Validation: if the toolbar is disabled, initial blocks must be provided before the session can start. The start / apply button is disabled and a warning is shown until the field is filled.
 
 ### Minimal integration example
 
@@ -103,6 +112,7 @@ import Blocks from './components/Blocks.vue';
     :maxBloques="20"
     :maxPorGrupo="9"
     :initialBlocks="[3, 5, 2]"
+    :showToolbar="true"
   />
 </template>
 ```
