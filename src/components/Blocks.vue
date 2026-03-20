@@ -367,6 +367,10 @@ const cuttingMode = ref(false);
 const connections = ref([]);
 const connectionsToCut = ref([]);
 
+// ===== POSICIÓN DEL GRID (ARRASTRABLE) =====
+const gridPos = ref({ x: null, y: null }); // null = centrado por defecto
+const gridDrag = ref(null); // { startMouseX, startMouseY, startGridX, startGridY }
+
 // ===== TOAST =====
 const toastMessage = ref('');
 const showToast = ref(false);
@@ -1559,6 +1563,42 @@ const handleCutModeMouseDown = (e) => {
 const toggleOverlay = () => showOverlay.value = !showOverlay.value;
 const closeOverlay  = () => showOverlay.value = false;
 
+// ===== DRAG DEL GRID =====
+const handleGridDragStart = (e) => {
+  if (cuttingMode.value) return;
+  e.stopPropagation();
+
+  if (gridPos.value.x === null) {
+    const container = e.currentTarget.closest('.grid-container');
+    const gridCenter = e.currentTarget.closest('.grid-center');
+    const rect = gridCenter.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    gridPos.value = {
+      x: rect.left - containerRect.left,
+      y: rect.top - containerRect.top,
+    };
+  }
+
+  gridDrag.value = {
+    startMouseX: e.clientX,
+    startMouseY: e.clientY,
+    startGridX: gridPos.value.x,
+    startGridY: gridPos.value.y,
+  };
+};
+
+const handleGridDragMove = (e) => {
+  if (!gridDrag.value) return;
+  gridPos.value = {
+    x: gridDrag.value.startGridX + (e.clientX - gridDrag.value.startMouseX),
+    y: gridDrag.value.startGridY + (e.clientY - gridDrag.value.startMouseY),
+  };
+};
+
+const handleGridDragEnd = () => {
+  gridDrag.value = null;
+};
+
 // ===== HELPERS DE POSICIONAMIENTO ALEATORIO =====
 const makeOccupancyTracker = () => {
   const occupied = new Set();
@@ -1689,15 +1729,9 @@ const createInitialBlocks = () => {
   const placeGroupInQuadrant = (count, q) => {
     const occupied = new Set();
 
-    const markCell = (x, y) => {
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          occupied.add(`${x + dx},${y + dy}`);
-        }
-      }
-    };
+    // Solo marcar la celda exacta — sin buffer — para maximizar espacio disponible
+    const markCell = (x, y) => occupied.add(`${x},${y}`);
 
-    // Candidatos dentro del cuadrante, mezclados aleatoriamente
     const candidates = [];
     for (let y = q.y0; y < q.y1; y++) {
       for (let x = q.x0; x < q.x1; x++) {
@@ -1757,13 +1791,9 @@ onMounted(() => {
 
   document.addEventListener('mousemove', handleSnapCutMove);
   document.addEventListener('mouseup', handleSnapCutEnd);
-  
-
+  document.addEventListener('mousemove', handleGridDragMove);
+  document.addEventListener('mouseup', handleGridDragEnd);
   window.addEventListener('resize', onResize);
-  
-
-  
-
   document.addEventListener('keydown', handleKeyDown);
 });
 
@@ -1772,6 +1802,8 @@ onUnmounted(() => {
   document.removeEventListener('mouseup', handleMouseUp);
   document.removeEventListener('mousemove', handleSnapCutMove);
   document.removeEventListener('mouseup', handleSnapCutEnd);
+  document.removeEventListener('mousemove', handleGridDragMove);
+  document.removeEventListener('mouseup', handleGridDragEnd);
   document.removeEventListener('keydown', handleKeyDown);
   window.removeEventListener('resize', onResize);
 });
@@ -1835,172 +1867,188 @@ onUnmounted(() => {
       </div>
 
       <div class="grid-container">
-
-        
-        <div class="grid-center" @click.stop @mousedown.capture="handleCutModeMouseDown">
-          <div 
-            class="grid-transparent" 
-            :class="{ 'cutting-cursor': cuttingMode }"
-            :style="{ 
-              width: (GRID_WIDTH * CELL_SIZE) + 'px', 
-              height: (GRID_HEIGHT * CELL_SIZE) + 'px' 
-            }"
-            @click="handleGridCanvasClick"
-          >
-            <div v-for="y in GRID_HEIGHT" :key="`row-${y}`" class="grid-row-transparent">
-              <div
-                v-for="x in GRID_WIDTH"
-                :key="`cell-${x}-${y}`"
-                class="grid-cell-transparent"
-                :style="{ width: CELL_SIZE + 'px', height: CELL_SIZE + 'px' }"
-              ></div>
-            </div>
+        <div
+          class="grid-center"
+          :class="{ 'grid-dragging': !!gridDrag }"
+          :style="gridPos.x !== null ? {
+            position: 'absolute',
+            left: gridPos.x + 'px',
+            top: gridPos.y + 'px',
+          } : {}"
+          @click.stop
+          @mousedown.capture="handleCutModeMouseDown"
+        >
+          <!-- Barra de título para arrastrar el grid -->
+          <div class="grid-titlebar" @mousedown="handleGridDragStart">
+            <span class="grid-titlebar-dots">
+              <span></span><span></span><span></span>
+            </span>
           </div>
 
-          <div class="blocks-layer-transparent">
-            <div
-              v-for="shape in shapes"
-              :key="shape.id"
-              @mousedown="handleBlockMouseDown($event, shape.id)"
-              :class="{
-                'block-transparent': true,
-                'block-dragging': draggingId === shape.id,
-                'block-selected': selectedShapeId === shape.id,
-                'block-connected': shape.isConnected,
-                'no-hover': cuttingMode,
-                'visually-separated': shape.visuallySeparated
+          <!-- Cuerpo del grid: referencia para position:absolute de bloques y SVGs -->
+          <div class="grid-body">
+            <div 
+              class="grid-transparent" 
+              :class="{ 'cutting-cursor': cuttingMode }"
+              :style="{ 
+                width: (GRID_WIDTH * CELL_SIZE) + 'px', 
+                height: (GRID_HEIGHT * CELL_SIZE) + 'px' 
               }"
-              :style="{
-                left: (shape.gridX * CELL_SIZE) + 'px',
-                top: (shape.gridY * CELL_SIZE) + 'px',
-                width: (getShapeDimensions(shape).width * CELL_SIZE) + 'px',
-                height: (getShapeDimensions(shape).height * CELL_SIZE) + 'px',
-                position: 'absolute',
-                backgroundColor: 'transparent'
-              }"
+              @click="handleGridCanvasClick"
             >
-              <template v-if="shape.units && shape.units.length > 0">
+              <div v-for="y in GRID_HEIGHT" :key="`row-${y}`" class="grid-row-transparent">
                 <div
-                  v-for="(unit, unitIndex) in shape.units"
-                  :key="unitIndex"
-                  class="unit-cube"
+                  v-for="x in GRID_WIDTH"
+                  :key="`cell-${x}-${y}`"
+                  class="grid-cell-transparent"
+                  :style="{ width: CELL_SIZE + 'px', height: CELL_SIZE + 'px' }"
+                ></div>
+              </div>
+            </div>
+
+            <div class="blocks-layer-transparent">
+              <div
+                v-for="shape in shapes"
+                :key="shape.id"
+                @mousedown="handleBlockMouseDown($event, shape.id)"
+                :class="{
+                  'block-transparent': true,
+                  'block-dragging': draggingId === shape.id,
+                  'block-selected': selectedShapeId === shape.id,
+                  'block-connected': shape.isConnected,
+                  'no-hover': cuttingMode,
+                  'visually-separated': shape.visuallySeparated
+                }"
+                :style="{
+                  left: (shape.gridX * CELL_SIZE) + 'px',
+                  top: (shape.gridY * CELL_SIZE) + 'px',
+                  width: (getShapeDimensions(shape).width * CELL_SIZE) + 'px',
+                  height: (getShapeDimensions(shape).height * CELL_SIZE) + 'px',
+                  position: 'absolute',
+                  backgroundColor: 'transparent'
+                }"
+              >
+                <template v-if="shape.units && shape.units.length > 0">
+                  <div
+                    v-for="(unit, unitIndex) in shape.units"
+                    :key="unitIndex"
+                    class="unit-cube"
+                    :style="{
+                      position: 'absolute',
+                      left: (unit.relX * CELL_SIZE) + 'px',
+                      top: (unit.relY * CELL_SIZE) + 'px',
+                      width: CELL_SIZE + 'px',
+                      height: CELL_SIZE + 'px',
+                      backgroundColor: unit.color,
+                      border: '2px solid rgba(0,0,0,0.3)',
+                      boxSizing: 'border-box'
+                    }"
+                  ></div>
+                </template>
+                
+                <div
                   :style="{
                     position: 'absolute',
-                    left: (unit.relX * CELL_SIZE) + 'px',
-                    top: (unit.relY * CELL_SIZE) + 'px',
-                    width: CELL_SIZE + 'px',
-                    height: CELL_SIZE + 'px',
-                    backgroundColor: unit.color,
-                    border: '2px solid rgba(0,0,0,0.3)',
-                    boxSizing: 'border-box'
+                    inset: 0,
+                    backgroundImage: getBorderStyle(shape),
+                    pointerEvents: 'none'
                   }"
                 ></div>
-              </template>
-              
-              <!-- Bordes del bloque completo -->
-              <div
+              </div>
+            </div>
+
+            <!-- SVGs de corte -->
+            <template v-if="cuttingMode">
+              <svg
+                class="connections-layer"
                 :style="{
                   position: 'absolute',
-                  inset: 0,
-                  backgroundImage: getBorderStyle(shape),
-                  pointerEvents: 'none'
+                  top: 0, left: 0,
+                  width: (GRID_WIDTH * CELL_SIZE) + 'px',
+                  height: (GRID_HEIGHT * CELL_SIZE) + 'px',
+                  overflow: 'visible',
+                  pointerEvents: 'none',
+                  zIndex: 50
                 }"
-              ></div>
+              >
+                <g v-for="(conn, idx) in connections" :key="`conn-${idx}`">
+                  <line
+                    :x1="conn.x1" :y1="conn.y1"
+                    :x2="conn.x2" :y2="conn.y2"
+                    :stroke="connectionsToCut.includes(conn) ? '#be185d' : '#ec4899'"
+                    :stroke-width="connectionsToCut.includes(conn) ? '6' : '4'"
+                    stroke-dasharray="8,4"
+                    stroke-linecap="round"
+                    :class="['cut-line', { 'cut-line-active': connectionsToCut.includes(conn) }]"
+                  />
+                  <circle
+                    :cx="conn.x1" :cy="conn.y1"
+                    :r="connectionsToCut.includes(conn) ? '6' : '4'"
+                    :fill="connectionsToCut.includes(conn) ? '#be185d' : '#ec4899'"
+                  />
+                  <circle
+                    :cx="conn.x2" :cy="conn.y2"
+                    :r="connectionsToCut.includes(conn) ? '6' : '4'"
+                    :fill="connectionsToCut.includes(conn) ? '#be185d' : '#ec4899'"
+                  />
+                </g>
+              </svg>
 
-            </div>
-          </div>
-
-          <!-- SVGs de corte: dentro de grid-center pero con overflow visible -->
-          <template v-if="cuttingMode">
-            <svg
-              class="connections-layer"
-              :style="{
-                position: 'absolute',
-                top: 0, left: 0,
-                width: (GRID_WIDTH * CELL_SIZE) + 'px',
-                height: (GRID_HEIGHT * CELL_SIZE) + 'px',
-                overflow: 'visible',
-                pointerEvents: 'none',
-                zIndex: 50
-              }"
-            >
-              <g v-for="(conn, idx) in connections" :key="`conn-${idx}`">
+              <svg
+                v-if="snapToLineState.active && snapToLineState.currentConnection"
+                class="snap-cut-visualization"
+                :style="{
+                  position: 'absolute',
+                  top: 0, left: 0,
+                  width: (GRID_WIDTH * CELL_SIZE) + 'px',
+                  height: (GRID_HEIGHT * CELL_SIZE) + 'px',
+                  overflow: 'visible',
+                  pointerEvents: 'none',
+                  zIndex: 55
+                }"
+              >
                 <line
+                  v-for="conn in connections"
+                  :key="`conn-${conn.shape1Id}-${conn.shape2Id}`"
                   :x1="conn.x1" :y1="conn.y1"
                   :x2="conn.x2" :y2="conn.y2"
-                  :stroke="connectionsToCut.includes(conn) ? '#be185d' : '#ec4899'"
-                  :stroke-width="connectionsToCut.includes(conn) ? '6' : '4'"
-                  stroke-dasharray="8,4"
+                  :stroke="isConnectionCut(conn) ? '#10b981' : '#94a3b8'"
+                  :stroke-width="isConnectionCut(conn) ? 6 : 3"
                   stroke-linecap="round"
-                  :class="['cut-line', { 'cut-line-active': connectionsToCut.includes(conn) }]"
+                  :opacity="isConnectionCut(conn) ? 0.9 : 0.3"
+                />
+                <line
+                  v-if="snapToLineState.currentConnection"
+                  :x1="snapToLineState.currentConnection.x1"
+                  :y1="snapToLineState.currentConnection.y1"
+                  :x2="snapToLineState.currentConnection.x2"
+                  :y2="snapToLineState.currentConnection.y2"
+                  :stroke="snapToLineState.reachedOppositeVertex ? '#10b981' : '#ec4899'"
+                  stroke-width="8"
+                  stroke-linecap="round"
+                  :opacity="snapToLineState.reachedOppositeVertex ? 0.9 : 0.6"
                 />
                 <circle
-                  :cx="conn.x1" :cy="conn.y1"
-                  :r="connectionsToCut.includes(conn) ? '6' : '4'"
-                  :fill="connectionsToCut.includes(conn) ? '#be185d' : '#ec4899'"
-                />
-                <circle
-                  :cx="conn.x2" :cy="conn.y2"
-                  :r="connectionsToCut.includes(conn) ? '6' : '4'"
-                  :fill="connectionsToCut.includes(conn) ? '#be185d' : '#ec4899'"
-                />
-              </g>
-            </svg>
-
-            <svg
-              v-if="snapToLineState.active && snapToLineState.currentConnection"
-              class="snap-cut-visualization"
-              :style="{
-                position: 'absolute',
-                top: 0, left: 0,
-                width: (GRID_WIDTH * CELL_SIZE) + 'px',
-                height: (GRID_HEIGHT * CELL_SIZE) + 'px',
-                overflow: 'visible',
-                pointerEvents: 'none',
-                zIndex: 55
-              }"
-            >
-              <line
-                v-for="conn in connections"
-                :key="`conn-${conn.shape1Id}-${conn.shape2Id}`"
-                :x1="conn.x1" :y1="conn.y1"
-                :x2="conn.x2" :y2="conn.y2"
-                :stroke="isConnectionCut(conn) ? '#10b981' : '#94a3b8'"
-                :stroke-width="isConnectionCut(conn) ? 6 : 3"
-                stroke-linecap="round"
-                :opacity="isConnectionCut(conn) ? 0.9 : 0.3"
-              />
-              <line
-                v-if="snapToLineState.currentConnection"
-                :x1="snapToLineState.currentConnection.x1"
-                :y1="snapToLineState.currentConnection.y1"
-                :x2="snapToLineState.currentConnection.x2"
-                :y2="snapToLineState.currentConnection.y2"
-                :stroke="snapToLineState.reachedOppositeVertex ? '#10b981' : '#ec4899'"
-                stroke-width="8"
-                stroke-linecap="round"
-                :opacity="snapToLineState.reachedOppositeVertex ? 0.9 : 0.6"
-              />
-              <circle
-                v-if="snapToLineState.snappedPosition"
-                :cx="snapToLineState.snappedPosition.x"
-                :cy="snapToLineState.snappedPosition.y"
-                r="10"
-                :fill="snapToLineState.reachedOppositeVertex ? '#10b981' : '#fbbf24'"
-                stroke="#ffffff"
-                stroke-width="3"
-                opacity="1"
-              >
-                <animate
-                  v-if="snapToLineState.reachedOppositeVertex"
-                  attributeName="r"
-                  values="10;14;10"
-                  dur="0.6s"
-                  repeatCount="indefinite"
-                />
-              </circle>
-            </svg>
-          </template>
+                  v-if="snapToLineState.snappedPosition"
+                  :cx="snapToLineState.snappedPosition.x"
+                  :cy="snapToLineState.snappedPosition.y"
+                  r="10"
+                  :fill="snapToLineState.reachedOppositeVertex ? '#10b981' : '#fbbf24'"
+                  stroke="#ffffff"
+                  stroke-width="3"
+                  opacity="1"
+                >
+                  <animate
+                    v-if="snapToLineState.reachedOppositeVertex"
+                    attributeName="r"
+                    values="10;14;10"
+                    dur="0.6s"
+                    repeatCount="indefinite"
+                  />
+                </circle>
+              </svg>
+            </template>
+          </div>
 
         </div>
       </div>
@@ -2078,19 +2126,59 @@ onUnmounted(() => {
 }
 
 .grid-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  position: relative;
   width: 100%;
   height: 100%;
   overflow: visible;
-  gap: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-/* ===== REGLA NUMÉRICA ELIMINADA ===== */
-
 .grid-center {
+  position: relative;
+  display: inline-block;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.15), 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+.grid-center.grid-dragging {
+  user-select: none;
+}
+
+.grid-titlebar {
+  width: 100%;
+  height: 28px;
+  background: #f1f5f9;
+  border-radius: 12px 12px 0 0;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+
+.grid-center.grid-dragging .grid-titlebar {
+  cursor: grabbing;
+}
+
+.grid-titlebar-dots {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.grid-titlebar-dots span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  display: inline-block;
+}
+
+.grid-body {
   position: relative;
   display: inline-block;
 }
@@ -2099,9 +2187,7 @@ onUnmounted(() => {
   position: relative;
   z-index: 1;
   background: transparent;
-  border-radius: 8px;
-  padding: 0;
-  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.15);
+  border-radius: 0 0 12px 12px;
   overflow: visible;
 }
 
@@ -2114,18 +2200,12 @@ onUnmounted(() => {
 }
 
 .grid-cell-transparent {
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  border: 1px solid rgba(0, 0, 0, 0.12);
   background-color: transparent;
   position: relative;
 }
 
-.grid-cell-transparent::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.04) 0%, transparent 70%);
-  pointer-events: none;
-}
+
 
 .blocks-layer-transparent {
   position: absolute;

@@ -3,7 +3,7 @@
     <!-- Página de Configuración inicial -->
     <div v-if="!gameStarted" class="config-page">
       <div class="config-card">
-        <h1 class="config-title"> Sistema de bloques</h1>
+        <h1 class="config-title"> Block System</h1>
         
         <form @submit.prevent="startGame" class="config-form">
           <div class="form-row">
@@ -166,10 +166,10 @@ const showParamsModal = ref(false);
 
 // Configuración activa (la que usa el grid)
 const config = ref({
-  gridColumns: 15,
-  gridRows: 10,
+  gridColumns: 8,
+  gridRows: 7,
   maxBloques: 20,
-  maxUnitsPerGroup: 9,
+  maxUnitsPerGroup: 5,
 });
 
 const activeConfig = ref({ ...config.value });
