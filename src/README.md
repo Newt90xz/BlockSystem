@@ -109,10 +109,10 @@ import Blocks from './components/Blocks.vue';
 
 <template>
   <Blocks
-    :gridColumns="15"
-    :gridRows="10"
+    :gridColumns="8"
+    :gridRows="7"
     :maxBloques="20"
-    :maxPorGrupo="9"
+    :maxPorGrupo="5"
     :initialBlocks="[3, 5, 2]"
     :showToolbar="true"
   />
