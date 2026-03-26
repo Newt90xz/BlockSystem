@@ -1590,9 +1590,18 @@ const handleGridDragStart = (e) => {
 
 const handleGridDragMove = (e) => {
   if (!gridDrag.value) return;
+
+  const rawX = gridDrag.value.startGridX + (e.clientX - gridDrag.value.startMouseX);
+  const rawY = gridDrag.value.startGridY + (e.clientY - gridDrag.value.startMouseY);
+
+  // Calcular tamaño del grid para clamping
+  const gridEl = document.querySelector('.grid-center');
+  const w = gridEl ? gridEl.offsetWidth : 0;
+  const h = gridEl ? gridEl.offsetHeight : 0;
+
   gridPos.value = {
-    x: gridDrag.value.startGridX + (e.clientX - gridDrag.value.startMouseX),
-    y: gridDrag.value.startGridY + (e.clientY - gridDrag.value.startMouseY),
+    x: Math.max(0, Math.min(rawX, window.innerWidth - w)),
+    y: Math.max(0, Math.min(rawY, window.innerHeight - h)),
   };
 };
 
@@ -1813,59 +1822,10 @@ onUnmounted(() => {
 <template>
   <div>
     <div v-if="!showOverlay" class="floating-buttons">
-      <button @click="toggleOverlay" class="fab">🧱 Bloques</button>
+      <button @click="toggleOverlay" class="fab">🧱 GridOverlay </button>
     </div>
 
     <div v-if="showOverlay" class="grid-fullscreen" @click="handleGridCanvasClick">
-      <!-- Barra flotante de herramientas -->
-      <div v-if="showToolbar" class="floating-toolbar" @click.stop>
-        <button
-          @click="addBlock()"
-          class="tool-btn tool-btn--add"
-          :style="{ backgroundColor: BLOCKS_CONFIG['uno'].color }"
-          title="Agregar bloque"
-        >+1</button>
-
-        <div class="tool-divider"></div>
-
-        <button
-          @click="spawnRandomBlocks"
-          class="tool-btn"
-          title="Mezclar bloques"
-        >🔀</button>
-
-        <div class="tool-divider"></div>
-
-        <button
-          @click="toggleCuttingMode"
-          :class="['tool-btn', { 'tool-btn--active': cuttingMode }]"
-          title="Desacoplar conexiones"
-        >✂️</button>
-
-        <div class="tool-divider"></div>
-
-        <button
-          @click="undo"
-          :disabled="currentStep <= 0"
-          class="tool-btn"
-          title="Deshacer"
-        >↶</button>
-
-        <button
-          @click="redo"
-          :disabled="currentStep >= history.length - 1"
-          class="tool-btn"
-          title="Rehacer"
-        >↷</button>
-
-        <div class="tool-divider"></div>
-
-        <button
-          @click="clearAll"
-          class="tool-btn tool-btn--danger"
-          title="Borrar todo"
-        >🗑️</button>
-      </div>
 
       <div class="grid-container">
         <div
@@ -1879,11 +1839,12 @@ onUnmounted(() => {
           @click.stop
           @mousedown.capture="handleCutModeMouseDown"
         >
-          <!-- Barra de título para arrastrar el grid -->
+          <!-- Barra de título -->
           <div class="grid-titlebar" @mousedown="handleGridDragStart">
             <span class="grid-titlebar-dots">
               <span></span><span></span><span></span>
             </span>
+            <button class="titlebar-close" @mousedown.stop @click="closeOverlay"></button>
           </div>
 
           <!-- Cuerpo del grid: referencia para position:absolute de bloques y SVGs -->
@@ -2051,6 +2012,37 @@ onUnmounted(() => {
             </template>
           </div>
 
+          <!-- Toolbar pegada al grid -->
+          <div v-if="showToolbar" class="grid-toolbar" @click.stop @mousedown.stop>
+            <button
+              @click="addBlock()"
+              class="tool-btn tool-btn--add"
+              :style="{ backgroundColor: BLOCKS_CONFIG['uno'].color }"
+              title="Agregar bloque"
+            >+1</button>
+
+            <div class="tool-divider"></div>
+
+            <button @click="spawnRandomBlocks" class="tool-btn" title="Mezclar bloques">🔀</button>
+
+            <div class="tool-divider"></div>
+
+            <button
+              @click="toggleCuttingMode"
+              :class="['tool-btn', { 'tool-btn--active': cuttingMode }]"
+              title="Desacoplar conexiones"
+            >✂️</button>
+
+            <div class="tool-divider"></div>
+
+            <button @click="undo" :disabled="currentStep <= 0" class="tool-btn" title="Deshacer">↶</button>
+            <button @click="redo" :disabled="currentStep >= history.length - 1" class="tool-btn" title="Rehacer">↷</button>
+
+            <div class="tool-divider"></div>
+
+            <button @click="clearAll" class="tool-btn tool-btn--danger" title="Borrar todo">🗑️</button>
+          </div>
+
         </div>
       </div>
     </div>
@@ -2150,14 +2142,15 @@ onUnmounted(() => {
 
 .grid-titlebar {
   width: 100%;
-  height: 28px;
+  height: 32px;
   background: #f1f5f9;
   border-radius: 12px 12px 0 0;
   border-bottom: 1px solid rgba(0,0,0,0.08);
   cursor: grab;
   display: flex;
   align-items: center;
-  padding: 0 10px;
+  justify-content: space-between;
+  padding: 0 8px 0 10px;
   box-sizing: border-box;
 }
 
@@ -2177,6 +2170,38 @@ onUnmounted(() => {
   border-radius: 50%;
   background: #cbd5e1;
   display: inline-block;
+}
+
+.titlebar-close {
+  width: 14px;
+  height: 14px;
+  background: #ff5f57;
+  border: 1.5px solid #e0443e;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0;
+  transition: filter 0.15s;
+  flex-shrink: 0;
+}
+
+.titlebar-close:hover {
+  filter: brightness(0.88);
+}
+
+/* ===== TOOLBAR PEGADA AL GRID ===== */
+.grid-toolbar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.5rem;
+  background: #f1f5f9;
+  border-top: 2px solid rgba(0,0,0,0.1);
+  border-radius: 0 0 12px 12px;
+  box-sizing: border-box;
 }
 
 .grid-body {
@@ -2429,28 +2454,13 @@ onUnmounted(() => {
 }
 
 /* ===== BARRA FLOTANTE DE HERRAMIENTAS ===== */
-.floating-toolbar {
-  position: fixed;
-  bottom: 1.5rem;
-  right: 1.5rem;
-  z-index: 2000;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  background: white;
-  border-radius: 16px;
-  padding: 0.45rem 0.55rem;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.13), 0 1px 4px rgba(0,0,0,0.07);
-  border: 1px solid rgba(0,0,0,0.07);
-}
-
 .tool-btn {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   background: transparent;
   border: none;
-  border-radius: 10px;
-  font-size: 1.1rem;
+  border-radius: 8px;
+  font-size: 1rem;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -2506,16 +2516,6 @@ onUnmounted(() => {
   background: #e5e7eb;
   margin: 0 0.15rem;
   flex-shrink: 0;
-}
-
-@media (max-width: 768px) {
-  .floating-toolbar {
-    bottom: 1rem;
-    right: 50%;
-    transform: translateX(50%);
-    gap: 0.15rem;
-    padding: 0.4rem 0.5rem;
-  }
 }
 
 /* ===== TOAST NOTIFICATION ===== */

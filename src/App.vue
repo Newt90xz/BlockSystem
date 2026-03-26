@@ -29,7 +29,7 @@
 
           <div class="form-row">
             <div class="form-group">
-              <label>Máx. Bloques</label>
+              <label>Maximo de Bloques</label>
               <input 
                 type="number" 
                 v-model.number="config.maxBloques"
@@ -38,7 +38,7 @@
               />
             </div>
             <div class="form-group">
-              <label>Máx. x Grupo</label>
+              <label>Maximo por Grupo</label>
               <input 
                 type="number" 
                 v-model.number="config.maxUnitsPerGroup"
@@ -49,7 +49,7 @@
           </div>
 
           <div class="form-group-full">
-            <label>Bloques Iniciales <span class="optional">(opcional)</span></label>
+            <label>Bloques Iniciales <span class="optional"> (Recomendado)</span></label>
             <input 
               type="text" 
               v-model="initialBlocksInput"
@@ -60,7 +60,7 @@
 
           <div class="form-toggle">
             <label class="toggle-label">
-              <span>Barra de herramientas</span>
+              <span> Toolbar </span>
               <button
                 type="button"
                 class="toggle-btn"
