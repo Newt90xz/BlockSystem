@@ -1,6 +1,8 @@
 # src
 
-This folder contains the full application source. The core of the project is `components/Blocks.vue`. `App.vue` is a working example of how to integrate it.
+This folder contains the full application source. The core of the project is `components/Blocks.vue`. 
+
+`App.vue` is a working example of how to integrate it.
 
 ---
 
@@ -35,7 +37,7 @@ It is intended as an educational tool for exploring unit grouping and place valu
 | `maxPorGrupo` | `Number` | `Infinity` | Maximum units allowed in a single connected group |
 | `cantidadBl` | `Number` | `10` | Number of blocks generated when shuffling an empty grid |
 | `initialBlocks` | `Array<Number>` | `[]` | Pre-loads blocks on first mount. Each number is a group count placed in a different zone of the grid. See below. |
-| `showToolbar` | `Boolean` | `true` | Shows or hides the floating action toolbar (+1, 🔀, ✂️, ↶, ↷, 🗑️) |
+| `showToolbar` | `Boolean` | `true` | Shows or hides the action toolbar (+1, 🔀, ✂️, ↶, ↷, 🗑️) |
 
 ### `initialBlocks` layout
 
@@ -107,10 +109,10 @@ import Blocks from './components/Blocks.vue';
 
 <template>
   <Blocks
-    :gridColumns="15"
-    :gridRows="10"
+    :gridColumns="8"
+    :gridRows="7"
     :maxBloques="20"
-    :maxPorGrupo="9"
+    :maxPorGrupo="5"
     :initialBlocks="[3, 5, 2]"
     :showToolbar="true"
   />
