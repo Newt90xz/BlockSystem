@@ -1700,6 +1700,20 @@ const handleKeyDown = (e) => {
     e.preventDefault();
     toggleCuttingMode();
   }
+
+  // Spawn a block with 1 key (toolbar only)
+  if (e.key === '1' && props.showToolbar) {
+    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+    e.preventDefault();
+    addBlock();
+  }
+
+  // Shuffle blocks with S key (always)
+  if (e.key === 's' || e.key === 'S') {
+    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+    e.preventDefault();
+    spawnRandomBlocks();
+  }
 };
 
 // ===== CREAR BLOQUES INICIALES =====
