@@ -1693,6 +1693,13 @@ const handleKeyDown = (e) => {
     e.preventDefault();
     redo();
   }
+
+  // Toggle cut connections mode with X key
+  if (e.key === 'x' || e.key === 'X') {
+    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+    e.preventDefault();
+    toggleCuttingMode();
+  }
 };
 
 // ===== CREAR BLOQUES INICIALES =====
