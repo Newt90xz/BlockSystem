@@ -1,33 +1,40 @@
-# Blocksystem
-Block System is a Vue 3 application built around **`Blocks.vue`** — an interactive, educational grid component that lets users place, drag, group, and split unit blocks. It is designed to support mathematical intuition around grouping and place value (units and tens).
- 
-`App.vue` serves as a reference implementation showing how to configure and embed `Blocks.vue` in a real application.
+# BlockSystem
 
-## Requirements
-Before running the project, make sure you have installed:
-- Node.js (recommended version: 18+)
-- npm or yarn
+BlockSystem es una aplicación educativa interactiva construida con Vue 3, centrada en el componente **`Blocks.vue`**. Este componente permite a los usuarios colocar, arrastrar, agrupar y dividir bloques unitarios en una cuadrícula, fomentando la intuición matemática sobre agrupamiento y valor posicional (unidades y decenas).
 
-You can download Node.js here:
-https://nodejs.org/
+La aplicación incluye una interfaz completa con modos de demostración y ejercicios prácticos de suma, diseñada para apoyar el aprendizaje de conceptos matemáticos básicos de manera visual e interactiva.
 
+`App.vue` sirve como implementación de referencia, mostrando cómo integrar y configurar `Blocks.vue` en una aplicación real, incluyendo configuraciones avanzadas y ejercicios educativos.
 
-##  Setup
-Navigate to the root directory of the project and run the following command in the terminal:
+## Requisitos
+
+Antes de ejecutar el proyecto, asegúrate de tener instalados:
+- Node.js (versión recomendada: 18+)
+- npm o yarn
+
+Puedes descargar Node.js desde: [https://nodejs.org/](https://nodejs.org/)
+
+## Configuración
+
+Navega al directorio raíz del proyecto y ejecuta el siguiente comando en la terminal:
+
 ```sh
 npm install
 ```
-This command will automatically install Vue, Vite, TypeScript, and the required @vue/tsconfig configurations for the project.
 
-### Running the Application.
-To start the development server, run:
+Este comando instalará automáticamente Vue, Vite, TypeScript y las configuraciones necesarias de @vue/tsconfig para el proyecto.
+
+### Ejecutar la Aplicación
+
+Para iniciar el servidor de desarrollo, ejecuta:
+
 ```sh
 npm run dev
 ```
-This will launch the application in development mode using Vite.
 
+Esto lanzará la aplicación en modo desarrollo utilizando Vite.
 
-## Recommended IDE Setup
+## Configuración Recomendada del IDE
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (y desactiva Vetur).
 

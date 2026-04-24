@@ -1,29 +1,32 @@
 # src
 
-This folder contains the full application source. The core of the project is `components/Blocks.vue`. 
+Esta carpeta contiene el código fuente completo de la aplicación. El núcleo del proyecto es `components/Blocks.vue`.
 
-`App.vue` is a working example of how to integrate it.
+`App.vue` es un ejemplo funcional de cómo integrar y configurar `Blocks.vue` en una aplicación completa con modos interactivos.
 
 ---
 
 ## Blocks.vue
 
-`Blocks.vue` is a self-contained Vue 3 component that renders an interactive grid of draggable unit blocks (1×1). Users can place blocks, drag them freely, snap them together into groups, and cut connections between grouped blocks.
+`Blocks.vue` es un componente autocontenido de Vue 3 que renderiza una cuadrícula interactiva de bloques unitarios arrastrables (1×1). Los usuarios pueden colocar bloques, arrastrarlos libremente, agruparlos y cortar conexiones entre bloques agrupados.
 
-It is intended as an educational tool for exploring unit grouping and place value.
+Está diseñado como herramienta educativa para explorar el agrupamiento de unidades y el valor posicional. Soporta configuraciones de múltiples grids, modos inline para integración en layouts complejos, y personalización avanzada a través de props.
 
-### Features
+### Características
 
-- Drag-and-drop blocks on a configurable grid
-- Blocks snap together when placed adjacent horizontally
-- Groups are colored by their total sum
-- Cut connections between blocks using scissors mode (✂️)
-- Shuffle blocks into random positions (🔀)
-- Full undo / redo support (↶ ↷) and keyboard shortcuts (`Ctrl+Z`, `Ctrl+Y`)
-- Grid cell size adapts automatically to the viewport
-- Grid can be dragged freely within the overlay using the title bar
-- State is persisted in `localStorage` across sessions; cleared on full page reload
-- Toolbar can be hidden via prop for a read-only or restricted experience
+- Arrastrar y soltar bloques en una cuadrícula configurable
+- Los bloques se agrupan automáticamente al colocarse adyacentes horizontalmente
+- Los grupos se colorean según su suma total
+- Cortar conexiones entre bloques usando el modo tijeras (✂️)
+- Barajar bloques en posiciones aleatorias (🔀)
+- Soporte completo de deshacer/rehacer (↶ ↷) y atajos de teclado (`Ctrl+Z`, `Ctrl+Y`)
+- El tamaño de las celdas de la cuadrícula se adapta automáticamente al viewport
+- La cuadrícula se puede arrastrar libremente dentro del overlay usando la barra de título
+- El estado se persiste en `localStorage` entre sesiones; se borra en recarga completa de página
+- La toolbar se puede ocultar vía prop para experiencias de solo lectura o restringidas
+- Soporte para múltiples grids con posiciones y configuraciones personalizadas
+- Modo inline para renderizado directo sin overlays
+- Etiquetas y conteos configurables por grid
 
 ---
 
@@ -31,32 +34,57 @@ It is intended as an educational tool for exploring unit grouping and place valu
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `gridColumns` | `Number` | `20` | Number of columns in the grid |
-| `gridRows` | `Number` | `15` | Number of rows in the grid |
-| `maxBloques` | `Number` | `Infinity` | Maximum number of blocks allowed on the grid |
-| `maxPorGrupo` | `Number` | `Infinity` | Maximum units allowed in a single connected group |
-| `cantidadBl` | `Number` | `10` | Number of blocks generated when shuffling an empty grid |
-| `initialBlocks` | `Array<Number>` | `[]` | Pre-loads blocks on first mount. Each number is a group count placed in a different zone of the grid. See below. |
-| `showToolbar` | `Boolean` | `true` | Shows or hides the action toolbar (+1, 🔀, ✂️, ↶, ↷, 🗑️) |
+| `gridColumns` | `Number` | `8` | Número de columnas en la cuadrícula |
+| `gridRows` | `Number` | `7` | Número de filas en la cuadrícula |
+| `maxBloques` | `Number` | `Infinity` | Número máximo de bloques permitidos en la cuadrícula |
+| `maxPorGrupo` | `Number` | `Infinity` | Número máximo de unidades permitidas en un grupo conectado |
+| `cantidadBl` | `Number` | `10` | Número de bloques generados al barajar una cuadrícula vacía |
+| `initialBlocks` | `Array<Number>` | `[]` | Precarga bloques en el primer montaje. Cada número es un conteo de grupo colocado en diferentes zonas de la cuadrícula. Ver abajo. |
+| `showToolbar` | `Boolean` | `true` | Muestra u oculta la barra de herramientas (+1, 🔀, ✂️, ↶, ↷, 🗑️) |
+| `grids` | `Array<Object>` | `[]` | Array de configuraciones de grids múltiples. Cada objeto puede incluir `label`, `cols`, `rows`, `position`, `initialBlocks`, `isAnswer`, `showLabel`, `showCount` |
+| `inline` | `Boolean` | `false` | Renderiza los grids directamente sin overlay fullscreen ni FAB |
+| `inlineColumns` | `Number` | `0` | Número de columnas CSS para el contenedor inline (por defecto 'auto' = flex-row) |
+| `storageKey` | `String` | `'grid_blocks_data'` | Clave de localStorage para persistir el estado de los grids |
+| `noSnap` | `Boolean` | `false` | Desactiva el acoplamiento entre bloques (y el modo corte) |
+| `showGridLabels` | `Boolean` | `true` | Muestra los números debajo de cada grid (sumandos y respuesta) |
 
-### `initialBlocks` layout
+### Configuración de Grids Múltiples
 
-The array defines how many blocks go in each zone, distributed across the grid based on the number of groups:
+Cuando se proporciona el prop `grids`, el componente renderiza múltiples grids en lugar de uno solo. Cada grid en el array puede tener configuraciones individuales:
 
-| Groups | Layout |
-|---|---|
-| 1 | Full grid |
-| 2 | Top / Bottom |
-| 3 | Top (full width) / Bottom-left / Bottom-right |
-| 4 | Top-left / Top-right / Bottom-left / Bottom-right |
-| 5+ | Cycles through the 4-quadrant layout |
+- `label`: Etiqueta personalizada para el grid (por defecto "Grid N")
+- `cols` / `rows`: Dimensiones específicas
+- `position`: Posición en el overlay ('top-left', 'center', etc.)
+- `initialBlocks`: Bloques iniciales para ese grid
+- `isAnswer`: Marca el grid como área de respuesta
+- `showLabel` / `showCount`: Controla la visibilidad de etiquetas y conteos
 
 ```vue
-<!-- 3 blocks on top, 5 on the bottom-left, 2 on the bottom-right -->
+<Blocks :grids="[
+  { label: 'Sumando 1', cols: 5, rows: 1, initialBlocks: [3], showLabel: false },
+  { label: 'Sumando 2', cols: 5, rows: 1, initialBlocks: [4], showLabel: false },
+  { label: 'Respuesta', cols: 10, rows: 2, initialBlocks: [], isAnswer: true }
+]" :inline="true" :inlineColumns="1" />
+```
+
+### `initialBlocks` Layout
+
+El array define cuántos bloques van en cada zona, distribuidos en la cuadrícula según el número de grupos:
+
+| Grupos | Layout |
+|---|---|
+| 1 | Cuadrícula completa |
+| 2 | Superior / Inferior |
+| 3 | Superior (ancho completo) / Inferior-izq / Inferior-der |
+| 4 | Superior-izq / Superior-der / Inferior-izq / Inferior-der |
+| 5+ | Cicla a través del layout de 4 cuadrantes |
+
+```vue
+<!-- 3 bloques arriba, 5 abajo-izq, 2 abajo-der -->
 <Blocks :initialBlocks="[3, 5, 2]" />
 ```
 
-> If `showToolbar` is `false`, `initialBlocks` must be provided — otherwise there is no way to add blocks to the grid.
+> Si `showToolbar` es `false`, `initialBlocks` debe proporcionarse — de lo contrario no hay forma de agregar bloques a la cuadrícula.
 
 ---
 
@@ -92,15 +120,23 @@ Activating scissors mode shows dashed pink lines between all connected block pai
 
 ## App.vue
 
-`App.vue` is a reference implementation that wraps `Blocks.vue` with a configuration UI. It exists to demonstrate integration and for testing purposes.
+`App.vue` es una implementación de referencia completa que envuelve `Blocks.vue` con una interfaz de usuario avanzada. Incluye modos interactivos para demostración y aprendizaje, sirviendo tanto para integrar el componente como para fines educativos.
 
-It provides:
+### Características Principales
 
-- A setup screen where grid dimensions, block limits, initial blocks, and toolbar visibility are configured before starting
-- A settings modal (⚙️) that can be opened at any time to adjust parameters and reload the grid without navigating away
-- Validation: if the toolbar is disabled, initial blocks must be provided before the session can start. The start / apply button is disabled and a warning is shown until the field is filled.
+- **Modo Inicio**: Pantalla de bienvenida con opciones para acceder a la demo de configuración o a los ejercicios de suma.
+- **Demo de Configuración**: Permite configurar grids personalizados mediante un modal interactivo, ajustando etiquetas, dimensiones, posiciones y bloques iniciales. Incluye una vista previa en tiempo real.
+- **Ejercicios de Suma**: Serie de ejercicios matemáticos donde los usuarios resuelven problemas de suma utilizando los grids. Cada ejercicio incluye:
+  - Enunciados en lenguaje natural.
+  - Grids inline para sumandos y respuesta.
+  - Verificación automática de respuestas.
+  - Indicadores visuales de corrección o error.
+  - Opción para mostrar/ocultar números en los grids.
+  - Reinicio individual o global de ejercicios.
 
-### Minimal integration example
+La aplicación valida configuraciones (por ejemplo, requiere bloques iniciales si la toolbar está oculta) y persiste el estado de los ejercicios en `localStorage`.
+
+### Ejemplo de Integración Mínima
 
 ```vue
 <script setup>

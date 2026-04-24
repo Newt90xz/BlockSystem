@@ -1,196 +1,144 @@
 <template>
-  <div class="app-container">
-    <!-- Página de Configuración inicial -->
-    <div v-if="!gameStarted" class="config-page">
-      <div class="config-card">
-        <h1 class="config-title"> Block System</h1>
-        
-        <form @submit.prevent="startGame" class="config-form">
-          <div class="form-row">
-            <div class="form-group">
-              <label>Columnas</label>
-              <input 
-                type="number" 
-                v-model.number="config.gridColumns"
-                min="5"
-                max="30"
-              />
-            </div>
-            <div class="form-group">
-              <label>Filas</label>
-              <input 
-                type="number" 
-                v-model.number="config.gridRows"
-                min="5"
-                max="30"
-              />
-            </div>
-          </div>
+  <div class="app">
 
-          <div class="form-row">
-            <div class="form-group">
-              <label>Maximo de Bloques</label>
-              <input 
-                type="number" 
-                v-model.number="config.maxBloques"
-                min="1"
-                max="40"
-              />
-            </div>
-            <div class="form-group">
-              <label>Maximo por Grupo</label>
-              <input 
-                type="number" 
-                v-model.number="config.maxUnitsPerGroup"
-                min="1"
-                max="40"
-              />
-            </div>
-          </div>
+    <!-- INICIO -->
+    <div v-if="!modo" class="center">
+      <h1>🧱 Bloques</h1>
+      <!-- <button @click="modo = 'config'">⚙️ Demo configuración</button> -->
+      <button @click="modo = 'ejercicios'">➕ Ejercicios de suma</button>
+    </div>
 
-          <div class="form-group-full">
-            <label>Bloques Iniciales <span class="optional"> (Recomendado)</span></label>
-            <input 
-              type="text" 
-              v-model="initialBlocksInput"
-              placeholder="3,5,2"
-            />
-            <span class="hint">Ej: "3,5,2" = 10 bloques</span>
-          </div>
+    <!-- CONFIG -->
+    <div v-else-if="modo === 'config'" class="page">
+      <div class="bar">
+        <button @click="modo = null">← Volver</button>
+        <span>Demo configuración</span>
+        <button @click="modalAbierto = true">⚙️ Configurar grids</button>
+      </div>
 
-          <div class="form-toggle">
-            <label class="toggle-label">
-              <span> Toolbar </span>
-              <button
-                type="button"
-                class="toggle-btn"
-                :class="{ 'toggle-btn--on': config.showToolbar }"
-                @click="config.showToolbar = !config.showToolbar"
-              >
-                <span class="toggle-knob"></span>
-              </button>
-            </label>
-          </div>
-
-          <p v-if="startBlocked" class="toolbar-warning">
-            Ingresá bloques iniciales para continuar sin barra de herramientas.
-          </p>
-
-          <button type="submit" class="btn-start" :disabled="startBlocked">
-            Iniciar
-          </button>
-        </form>
+      <div class="preview">
+        <Blocks :key="key" :maxBloques="cfg.maxBloques" :maxPorGrupo="99"
+          :showToolbar="cfg.showToolbar" :grids="gridsActivos" />
       </div>
     </div>
 
-    <!-- Juego activo -->
-    <div v-else class="game-page">
-      <!-- Botón para abrir el modal de parámetros -->
-      <button class="btn-params" @click="openParamsModal" title="Configuración">
-        ⚙️
-      </button>
+    <!-- EJERCICIOS -->
+    <div v-else-if="modo === 'ejercicios'" class="page">
+      <div class="bar">
+        <button @click="modo = null">← Volver</button>
+        <button @click="showGridLabels = !showGridLabels">
+          {{ showGridLabels ? '🔢 Ocultar números' : '🔢 Mostrar números' }}
+        </button>
+        <button @click="reiniciar">↺ Reiniciar</button>
+      </div>
 
-      <!-- Componente Blocks — key fuerza remount al aplicar nuevos parámetros -->
-      <Blocks 
-        :key="gridKey"
-        :gridColumns="activeConfig.gridColumns"
-        :gridRows="activeConfig.gridRows"
-        :maxBloques="activeConfig.maxBloques"
-        :maxPorGrupo="activeConfig.maxUnitsPerGroup"
-        :initialBlocks="activeInitialBlocks"
-        :showToolbar="activeConfig.showToolbar"
-      />
-    </div>
+      <!-- Lista -->
+      <div class="form-scroll">
+        <div class="form-inner">
 
-    <!-- Modal de Parámetros -->
-    <Transition name="modal">
-      <div v-if="showParamsModal" class="modal-backdrop" @click.self="closeParamsModal">
-        <div class="modal-card">
-          <div class="modal-header">
-            <h2 class="modal-title">⚙️ Configuración de Grid</h2>
-            <button class="modal-close" @click="closeParamsModal">×</button>
-          </div>
-
-          <div class="modal-body">
-            <div class="form-row">
-              <div class="form-group">
-                <label>Columnas</label>
-                <input 
-                  type="number" 
-                  v-model.number="draftConfig.gridColumns"
-                  min="5"
-                  max="30"
-                />
-              </div>
-              <div class="form-group">
-                <label>Filas</label>
-                <input 
-                  type="number" 
-                  v-model.number="draftConfig.gridRows"
-                  min="5"
-                  max="30"
-                />
-              </div>
+          <!-- Una tarjeta por ejercicio -->
+          <div
+            v-for="(ej, idx) in lista"
+            :key="idx"
+            class="ej-card"
+            :class="{
+              'ej-card--ok': resultados[idx] === 'ok',
+              'ej-card--mal': resultados[idx] === 'mal',
+            }"
+          >
+            <!-- Número de pregunta + estado -->
+            <div class="ej-card-top">
+              <span class="ej-num">{{ idx + 1 }}</span>
+              <div class="ej-question">{{ ej.texto }}</div>
+              <span v-if="resultados[idx] === 'ok'" class="badge badge-ok">✓ Correcto</span>
+              <span v-else-if="resultados[idx] === 'mal'" class="badge badge-mal">✗ Intenta de nuevo</span>
             </div>
 
-            <div class="form-row">
-              <div class="form-group">
-                <label>Maximo de Bloques</label>
-                <input 
-                  type="number" 
-                  v-model.number="draftConfig.maxBloques"
-                  min="1"
-                  max="40"
-                />
-              </div>
-              <div class="form-group">
-                <label>Maximo por grupo</label>
-                <input 
-                  type="number" 
-                  v-model.number="draftConfig.maxUnitsPerGroup"
-                  min="1"
-                  max="40"
-                />
-              </div>
-            </div>
-
-            <div class="form-group-full">
-              <label>Bloques Iniciales <span class="optional">(Recomendado)</span></label>
-              <input 
-                type="text" 
-                v-model="draftInitialBlocksInput"
-                placeholder="3,5,2"
+            <!-- Grids inside exercise -->
+            <div class="ej-grids">
+              <Blocks
+                :key="ejKeys[idx]"
+                :maxBloques="ej.nums.reduce((a,b)=>a+b,0) * 2"
+                :maxPorGrupo="99"
+                :showToolbar="false"
+                :grids="getGridsForEj(ej)"
+                :inline="true"
+                :inlineColumns="2"
+                :storageKey="`grid_ej_${idx}_${ejKeys[idx]}`"
+                :noSnap="true"
+                :showGridLabels="showGridLabels"
               />
-              <span class="hint">Ej: "3,5,2" = 10 bloques · Dejar vacío para no cambiar</span>
             </div>
 
-            <div class="form-toggle">
-              <label class="toggle-label">
-                <span>Barra de herramientas</span>
-                <button
-                  type="button"
-                  class="toggle-btn"
-                  :class="{ 'toggle-btn--on': draftConfig.showToolbar }"
-                  @click="draftConfig.showToolbar = !draftConfig.showToolbar"
-                >
-                  <span class="toggle-knob"></span>
-                </button>
-              </label>
+            <!-- Footer -->
+            <div class="ej-footer">
+              <button
+                class="btn-ok"
+                :disabled="resultados[idx] === 'ok'"
+                @click="verificar(idx, ej)"
+              >
+                {{ resultados[idx] === 'ok' ? '¡Correcto! 🎉' : 'Verificar ✓' }}
+              </button>
+              <button class="btn-reset" @click="resetEj(idx)">↺</button>
             </div>
           </div>
 
-          <div class="modal-footer">
-            <p v-if="applyBlocked" class="toolbar-warning toolbar-warning--modal">
-              Ingresá bloques iniciales para continuar.
-            </p>
-            <div class="modal-footer-buttons">
-              <button class="btn-cancel" @click="closeParamsModal">Cancelar</button>
-              <button class="btn-apply" @click="applyParams" :disabled="applyBlocked">Aplicar y Recargar</button>
-            </div>
+          <!-- Mensaje final si todos correctos -->
+          <div v-if="todosCorrecto" class="form-done">
+            🏆 ¡Completaste todos los ejercicios!
           </div>
+
         </div>
       </div>
-    </Transition>
+    </div>
+
+    <!-- MODAL CONFIG -->
+    <div v-if="modalAbierto" class="modal-backdrop" @click.self="modalAbierto = false">
+      <div class="modal">
+        <div class="modal-header">
+          <strong>Configurar grids</strong>
+          <button @click="modalAbierto = false">✕</button>
+        </div>
+        <div class="modal-body">
+          <label>Toolbar <input type="checkbox" v-model="cfg.showToolbar" /></label>
+          <label>Máx. bloques <input type="number" v-model.number="cfg.maxBloques" min="1" max="100" /></label>
+          <hr />
+          <div v-for="(g, i) in cfg.grids" :key="i" class="grid-card">
+            <div class="grid-card-header">
+              <b>Grid {{ i + 1 }}</b>
+              <button v-if="cfg.grids.length > 1" @click="cfg.grids.splice(i,1)">✕</button>
+            </div>
+            <label>Label <input v-model="g.label" /></label>
+            <div class="row">
+              <label>Cols <input type="number" v-model.number="g.cols" min="3" max="20" /></label>
+              <label>Rows <input type="number" v-model.number="g.rows" min="3" max="20" /></label>
+            </div>
+            <label>Posición
+              <select v-model="g.position">
+                <option value="top-left">↖ Arriba izq</option>
+                <option value="top-right">↗ Arriba der</option>
+                <option value="bottom-left">↙ Abajo izq</option>
+                <option value="bottom-right">↘ Abajo der</option>
+                <option value="center">⊙ Centro</option>
+                <option value="left">← Izquierda</option>
+                <option value="right">→ Derecha</option>
+                <option value="top">↑ Arriba</option>
+                <option value="bottom">↓ Abajo</option>
+              </select>
+            </label>
+            <label>Bloques iniciales <small>(ej: 3,2)</small>
+              <input v-model="g.initialBlocksInput" placeholder="3,2" />
+            </label>
+          </div>
+          <button @click="cfg.grids.push(newGrid(cfg.grids.length))">+ Agregar grid</button>
+        </div>
+        <div class="modal-footer">
+          <button @click="modalAbierto = false">Cancelar</button>
+          <button class="btn-ok" @click="aplicar">Aplicar</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -198,461 +146,309 @@
 import { ref, computed } from 'vue';
 import Blocks from './components/Blocks.vue';
 
-const gameStarted = ref(false);
-const initialBlocksInput = ref('');
-const showParamsModal = ref(false);
+const modo = ref(null);
+const modalAbierto = ref(false);
 
-// Configuración activa (la que usa el grid)
-const config = ref({
-  gridColumns: 8,
-  gridRows: 7,
-  maxBloques: 20,
-  maxUnitsPerGroup: 5,
-  showToolbar: true,
+// ── CONFIG ──
+const key = ref(0);
+
+const newGrid = (i = 0) => ({
+  label: `Grid ${i + 1}`,
+  cols: 8, rows: 5,
+  position: ['left','right','top','bottom'][i] ?? 'center',
+  initialBlocksInput: '',
 });
 
-const activeConfig = ref({ ...config.value });
-const activeInitialBlocks = ref([]);
+const cfg = ref({ showToolbar: true, maxBloques: 20, grids: [newGrid(0)] });
 
-const draftConfig = ref({ ...config.value });
-const draftInitialBlocksInput = ref('');
+const parseBlocks = (s) =>
+  (s||'').split(',').map(n=>parseInt(n.trim())).filter(n=>!isNaN(n)&&n>0);
 
-// key que fuerza remount de Blocks cuando se aplican nuevos parámetros
-const gridKey = ref(0);
+const gridsActivos = ref([{ label:'Grid 1', cols:8, rows:5, position:'left', initialBlocks:[] }]);
 
-const parsedInitialBlocks = computed(() => {
-  if (!initialBlocksInput.value.trim()) return [];
-  return initialBlocksInput.value
-    .split(',')
-    .map(n => parseInt(n.trim()))
-    .filter(n => !isNaN(n) && n > 0);
-});
-
-const parseDraftInitialBlocks = () => {
-  if (!draftInitialBlocksInput.value.trim()) return [];
-  return draftInitialBlocksInput.value
-    .split(',')
-    .map(n => parseInt(n.trim()))
-    .filter(n => !isNaN(n) && n > 0);
+const aplicar = () => {
+  gridsActivos.value = cfg.value.grids.map(g => ({
+    ...g, initialBlocks: parseBlocks(g.initialBlocksInput)
+  }));
+  key.value++;
+  modalAbierto.value = false;
 };
 
-// Validación: si no hay toolbar, debe haber bloques iniciales
-const startBlocked = computed(() =>
-  !config.value.showToolbar && !initialBlocksInput.value.trim()
-);
+// ── EJERCICIOS ──
+// Enunciados en palabras — los números se extraen automáticamente
+const LISTA = [
+  { texto: "María tiene 2 manzanas y Juan tiene 3. ¿Cuántas tienen en total?" },
+  { texto: "En el patio hay 4 perros y llegan 2 más. ¿Cuántos perros hay ahora?" },
+  { texto: "Ana juntó 3 piedras en el parque y 4 en la playa. ¿Cuántas piedras tiene?" },
+];
 
-const applyBlocked = computed(() =>
-  !draftConfig.value.showToolbar && !draftInitialBlocksInput.value.trim()
-);
+// Extrae los números de un enunciado en orden de aparición
+const parseNums = (texto) =>
+  [...texto.matchAll(/\d+/g)].map(m => parseInt(m[0])).filter(n => n > 0 && n <= 20);
 
-const startGame = () => {
-  activeConfig.value = { ...config.value };
-  activeInitialBlocks.value = parsedInitialBlocks.value;
-  gameStarted.value = true;
+const lista     = ref(LISTA.map(e => ({ ...e, nums: parseNums(e.texto) })));
+const ejKeys    = ref(LISTA.map((_, i) => i * 100));
+const resultados = ref(LISTA.map(() => null));
+const showGridLabels = ref(true);
+
+const todosCorrecto = computed(() => resultados.value.every(r => r === 'ok'));
+
+const getGridsForEj = (ej) => {
+  const nums = ej.nums;
+  const total = nums.reduce((a, b) => a + b, 0);
+  const maxN = Math.max(...nums);
+  return [
+    // Un grid por cada número del enunciado
+    ...nums.map(n => ({
+      label: `${n}`,
+      cols: n,
+      rows: 1,
+      position: 'left',
+      initialBlocks: [n],
+      isAnswer: false,
+      showLabel: false,
+      showCount: false,
+    })),
+    // Grid de respuesta
+    {
+      label: 'Respuesta',
+      cols: Math.max(total, maxN * 2),
+      rows: 2,
+      position: 'right',
+      initialBlocks: [],
+      isAnswer: true,
+      showLabel: true,
+      showCount: false,
+    },
+  ];
 };
 
-const openParamsModal = () => {
-  // Cargar valores actuales en el borrador
-  draftConfig.value = { ...activeConfig.value };
-  draftInitialBlocksInput.value = '';
-  showParamsModal.value = true;
+const verificar = (idx, ej) => {
+  const storageKey = `grid_ej_${idx}_${ejKeys.value[idx]}`;
+  const raw = localStorage.getItem(storageKey);
+  const bloques = raw ? JSON.parse(raw) : [];
+  const answerGridId = ej.nums.length; // último grid = respuesta
+  const enRespuesta = bloques.filter(b => b.gridId === answerGridId).length;
+  const total = ej.nums.reduce((a, b) => a + b, 0);
+
+  if (enRespuesta === total) {
+    resultados.value[idx] = 'ok';
+  } else {
+    resultados.value[idx] = 'mal';
+    setTimeout(() => {
+      resultados.value[idx] = null;
+      ejKeys.value[idx]++;
+    }, 1000);
+  }
 };
 
-const closeParamsModal = () => {
-  showParamsModal.value = false;
+const resetEj = (idx) => {
+  resultados.value[idx] = null;
+  ejKeys.value[idx]++;
 };
 
-const applyParams = () => {
-  activeConfig.value = { ...draftConfig.value };
-  activeInitialBlocks.value = parseDraftInitialBlocks();
-  showParamsModal.value = false;
-  // Forzar remount del grid con la nueva configuración
-  gridKey.value++;
+const reiniciar = () => {
+  resultados.value = LISTA.map(() => null);
+  ejKeys.value = ejKeys.value.map(k => k + 1000);
 };
 </script>
 
 <style scoped>
-* {
-  box-sizing: border-box;
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+.app {
+  width: 100%; height: 100vh;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  background: #f0f4f8;
+  display: flex; flex-direction: column;
 }
 
-.app-container {
-  width: 100%;
-  height: 100vh;
-  overflow: hidden;
+.center {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  height: 100vh; gap: 1rem;
+}
+.center h1, .center h2 { font-size: 1.5rem; }
+
+.page { height: 100vh; display: flex; flex-direction: column; }
+
+.bar {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: white; border-bottom: 1px solid #ddd;
+  font-weight: 600; color: #333; flex-shrink: 0;
+  position: relative; z-index: 500;
+}
+.bar span { flex: 1; text-align: center; }
+
+.preview { flex: 1; position: relative; overflow: hidden; }
+
+/* ── FORM SCROLL ── */
+.form-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem 1rem 3rem;
 }
 
-/* ===== PÁGINA DE CONFIGURACIÓN INICIAL ===== */
-.config-page {
-  width: 100%;
-  height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #4e66bc 100%);
+.form-inner {
+  max-width: 860px;
+  margin: 0 auto;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
-.game-page {
-  width: 100%;
-  height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #4e66bc 100%);
-  position: relative;
-}
-
-.config-card {
+.form-header {
   background: white;
-  border-radius: 16px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-  padding: 2rem;
-  max-width: 400px;
-  width: 100%;
-}
-
-.config-title {
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: #1e293b;
-  margin: 0 0 1.5rem 0;
-  text-align: center;
-}
-
-.config-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.form-group-full {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.form-group label,
-.form-group-full label {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #475569;
-}
-
-.optional {
-  font-size: 0.75rem;
-  font-weight: 400;
-  color: #94a3b8;
-}
-
-.form-group input,
-.form-group-full input {
-  padding: 0.625rem;
-  border: 2px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  transition: border-color 0.2s;
-  font-family: inherit;
-}
-
-.form-group input:focus,
-.form-group-full input:focus {
-  outline: none;
-  border-color: #667eea;
-}
-
-.hint {
-  font-size: 0.75rem;
-  color: #94a3b8;
-}
-
-.form-toggle {
-  display: flex;
-  align-items: center;
-}
-
-.toggle-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #475569;
-  cursor: pointer;
-  user-select: none;
-}
-
-.toggle-btn {
-  position: relative;
-  width: 44px;
-  height: 24px;
-  background: #e2e8f0;
-  border: none;
   border-radius: 12px;
-  cursor: pointer;
-  transition: background 0.2s;
+  padding: 1.25rem 1.5rem;
+  border-top: 6px solid #6366f1;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+}
+.form-header h2 { font-size: 1.25rem; color: #1e1b4b; margin-bottom: 0.3rem; }
+.form-header p  { color: #666; font-size: 0.85rem; }
+
+/* ── TARJETA DE EJERCICIO ── */
+.ej-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+  overflow: hidden;
+  border: 2px solid transparent;
+  transition: border-color 0.25s;
+}
+.ej-card--ok  { border-color: #10b981; }
+.ej-card--mal { border-color: #ef4444; }
+
+.ej-card-top {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.9rem 1.25rem 0;
+}
+
+.ej-num {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: #6366f1;
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
 
-.toggle-btn--on {
-  background: #667eea;
-}
-
-.toggle-knob {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  background: white;
-  border-radius: 50%;
-  transition: transform 0.2s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-  display: block;
-}
-
-.toggle-btn--on .toggle-knob {
-  transform: translateX(20px);
-}
-
-.btn-start {
-  padding: 0.875rem;
-  background: linear-gradient(135deg, #69ae60 0%, #69ae60 100%);
-  color: white;
-  border: none;
-  border-radius: 10px;
+.ej-question {
   font-size: 1rem;
   font-weight: 600;
-  cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
-  margin-top: 0.5rem;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  color: #1e1b4b;
+  flex: 1;
+  line-height: 1.4;
 }
 
-.btn-start:disabled,
-.btn-apply:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  transform: none !important;
-  box-shadow: none !important;
+.badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.6rem;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.badge-ok  { background: #d1fae5; color: #065f46; }
+.badge-mal { background: #fee2e2; color: #991b1b; }
+
+
+.ej-grids {
+  min-height: 120px;
+  padding: 8px 0;
+  overflow: visible;
 }
 
-.toolbar-warning {
-  font-size: 0.78rem;
-  color: #f59e0b;
-  font-weight: 500;
-  margin: 0.25rem 0 0;
+.ej-footer {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid #f3f4f6;
 }
 
-.toolbar-warning::before {
-  content: '⚠️';
-  font-size: 0.85rem;
-}
-
-.toolbar-warning--modal {
-  padding: 0 0 0.25rem;
-}
-
-.btn-start:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
-}
-
-.btn-start:active {
-  transform: translateY(0);
-}
-
-/* ===== BOTÓN FLOTANTE DE PARÁMETROS ===== */
-.btn-params {
-  position: fixed;
-  top: 1rem;
-  left: 1rem;
-  z-index: 3000;
-  width: 42px;
-  height: 42px;
+.btn-reset {
+  padding: 0.4rem 0.7rem;
   background: white;
   border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  font-size: 1.2rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
-  transition: all 0.15s;
+  color: #6b7280;
+}
+.btn-reset:hover { background: #f9fafb; }
+
+.form-done {
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #065f46;
+  background: #d1fae5;
+  border-radius: 12px;
+  padding: 1.5rem;
 }
 
-.btn-params:hover {
-  background: #f3f4f6;
-  transform: scale(1.08);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-}
-
-/* ===== MODAL ===== */
+/* modal */
 .modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 5000;
-  padding: 1rem;
-  backdrop-filter: blur(2px);
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2000;
 }
-
-.modal-card {
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
-  width: 100%;
-  max-width: 400px;
+.modal {
+  background: white; border-radius: 10px;
+  width: 340px; max-height: 80vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
   overflow: hidden;
 }
-
 .modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1.25rem 1.5rem 0.75rem;
-  border-bottom: 1px solid #f1f5f9;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.75rem 1rem; border-bottom: 1px solid #eee;
 }
-
-.modal-title {
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: #1e293b;
-  margin: 0;
-}
-
-.modal-close {
-  width: 28px;
-  height: 28px;
-  background: #f1f5f9;
-  border: none;
-  border-radius: 6px;
-  font-size: 1.1rem;
-  color: #64748b;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s;
-  line-height: 1;
-}
-
-.modal-close:hover {
-  background: #e2e8f0;
-  color: #1e293b;
-}
-
 .modal-body {
-  padding: 1.25rem 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  padding: 0.75rem 1rem; overflow-y: auto; flex: 1;
+  display: flex; flex-direction: column; gap: 0.5rem;
 }
-
 .modal-footer {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem 1.5rem 1.25rem;
-  border-top: 1px solid #f1f5f9;
+  display: flex; justify-content: flex-end; gap: 0.5rem;
+  padding: 0.75rem 1rem; border-top: 1px solid #eee;
 }
-
-.modal-footer-buttons {
-  display: flex;
-  gap: 0.75rem;
+.modal-body label {
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 0.8rem; color: #555;
 }
-
-.btn-cancel {
-  flex: 1;
-  padding: 0.75rem;
-  background: #f1f5f9;
-  border: none;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #64748b;
-  cursor: pointer;
-  transition: background 0.15s;
+.modal-body label input, .modal-body label select {
+  padding: 3px 6px; border: 1px solid #ccc; border-radius: 4px;
+  font-size: 0.85rem; font-family: inherit;
 }
-
-.btn-cancel:hover {
-  background: #e2e8f0;
+.modal-body small { color: #999; font-size: 0.7rem; }
+.modal-body hr { border: none; border-top: 1px solid #eee; }
+.modal-body .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.grid-card {
+  border: 1px solid #e0e0e0; border-radius: 6px;
+  padding: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem;
+  background: #fafafa;
 }
-
-.btn-apply {
-  flex: 2;
-  padding: 0.75rem;
-  background: linear-gradient(135deg, #667eea 0%, #4e66bc 100%);
-  border: none;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: white;
-  cursor: pointer;
-  transition: all 0.15s;
-  box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3);
+.grid-card-header {
+  display: flex; align-items: center; justify-content: space-between;
 }
+.grid-card-header b { font-size: 0.85rem; }
 
-.btn-apply:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 5px 14px rgba(102, 126, 234, 0.4);
+/* botones */
+button {
+  padding: 0.4rem 0.9rem;
+  background: white; border: 1px solid #ccc; border-radius: 6px;
+  font-size: 0.85rem; font-weight: 600; cursor: pointer;
+  font-family: inherit; color: #333;
 }
-
-.btn-apply:active {
-  transform: translateY(0);
-}
-
-/* ===== TRANSICIÓN MODAL ===== */
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.modal-enter-active .modal-card,
-.modal-leave-active .modal-card {
-  transition: transform 0.2s ease, opacity 0.2s ease;
-}
-
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
-}
-
-.modal-enter-from .modal-card,
-.modal-leave-to .modal-card {
-  transform: scale(0.94) translateY(-8px);
-  opacity: 0;
-}
-
-/* ===== RESPONSIVE ===== */
-@media (max-width: 480px) {
-  .config-card {
-    padding: 1.5rem;
-  }
-  
-  .config-title {
-    font-size: 1.5rem;
-  }
-
-  .modal-card {
-    max-width: 100%;
-  }
-}
+button:hover { background: #f0f0f0; }
+button:disabled { opacity: 0.6; cursor: default; background: #d1fae5; border-color: #10b981; color: #065f46; }
+.btn-ok { background: #10b981; border-color: #10b981; color: white; padding: 0.5rem 1.5rem; }
+.btn-ok:hover:not(:disabled) { background: #059669; }
 </style>
