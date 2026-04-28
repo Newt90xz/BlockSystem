@@ -2,54 +2,45 @@
   <div class="app">
 
     <!-- Start screen -->
-    <div v-if="!modo" class="center">
-      <h1>🧱 Bloques</h1>
-      <button @click="modo = 'exercise'">Ejercicios de suma</button>
+    <div v-if="screen === null" class="center">
+      <h1>🧱 Blocks</h1>
+      <button @click="screen = 'exercises'"> Demo de Ejercicios</button>
     </div>
 
-    <!-- Exercises -->
-    <div v-else-if="modo === 'exercise'" class="page">
+    <!-- Exercises screen -->
+    <div v-else-if="screen === 'exercises'" class="page">
       <div class="bar">
-        <button @click="modo = null">← Volver</button>
-        <button @click="showGridLabels = !showGridLabels">
-          {{ showGridLabels ? 'Ocultar números' : 'Mostrar números' }}
+        <button @click="screen = null"> Volver </button>
+        <button @click="showLabels = !showLabels">
+          {{ showLabels ? 'Ocultar numeros' : 'Mostrar numeros' }}
         </button>
-        <button @click="reiniciar">↺ Reiniciar</button>
+        <button @click="resetAll">Reiniciar</button>
       </div>
 
-      <div class="form-scroll">
-        <div class="form-inner">
+      <div class="exercise-scroll">
+        <div class="exercise-list">
 
-          <div v-for="(ex, idx) in lista" :key="idx" class="ex-card" :class="{
-            'ex-card--ok': resultados[idx] === 'ok',
-            'ex-card--mal': resultados[idx] === 'mal',
+          <div v-for="(ex, idx) in exercises" :key="idx" class="ex-card" :class="{
+            'ex-card--ok': results[idx] === 'ok',
+            'ex-card--bad': results[idx] === 'bad',
           }">
-            <!-- Exercise header -->
-            <div class="ex-card-top">
-              <span class="ex-num">{{ idx + 1 }}</span>
-              <div class="ex-question">{{ ex.texto }}</div>
-              <span v-if="resultados[idx] === 'ok'" class="badge badge-ok">✓ Correcto</span>
-              <span v-else-if="resultados[idx] === 'mal'" class="badge badge-mal">✗ Intenta de nuevo</span>
+            <!-- Header -->
+            <div class="ex-header">
+              <span class="ex-index">{{ idx + 1 }}</span>
+              <p class="ex-question">{{ ex.text }}</p>
+              <span v-if="results[idx] === 'ok'" class="badge badge--ok">✓ Correct</span>
+              <span v-else-if="results[idx] === 'bad'" class="badge badge--bad">✗ Try again</span>
             </div>
 
             <!-- Grids -->
             <div class="ex-grids">
-              <Blocks :key="exKeys[idx]" :config="{
-                maxBloques: ex.answer * 2,
-                showToolbar: false,
-                inline: true,
-                inlineColumns: 2,
-                storageKey: `grid_ex_${idx}_${exKeys[idx]}`,
-                noSnap: true,
-                showGridLabels: showGridLabels,
-                grids: getGridsForExercise(ex),
-              }" />
+              <Blocks :key="keys[idx]" :config="buildConfig(ex, idx)" />
             </div>
 
             <!-- Footer -->
             <div class="ex-footer">
-              <button class="btn-ok" :disabled="resultados[idx] === 'ok'" @click="verify(idx, ex)">
-                {{ resultados[idx] === 'ok' ? '¡Correcto! 🎉' : 'Verificar ✓' }}
+              <button class="btn-verify" :disabled="results[idx] === 'ok'" @click="verify(idx, ex)">
+                {{ results[idx] === 'ok' ? 'Correcto!' : 'Check' }}
               </button>
               <button class="btn-reset" @click="resetExercise(idx)">↺</button>
             </div>
@@ -66,30 +57,33 @@
 import { ref } from 'vue';
 import Blocks from './components/Blocks.vue';
 
-const modo = ref(null);
+// ── SCREEN ──
+const screen = ref(null);
 
 // ── EXERCISES ──
-// Each exercise declares: texto, op, nums, answer.
-// op: 'add' | 'subtract' | 'multiply' | 'divide'
-// answer: the expected number of blocks in the answer grid.
-const statements = [
-  { texto: "María tiene 2 manzanas y Juan tiene 3. ¿Cuántas tienen en total?",   op: 'add',      nums: [2, 3],   answer: 5  },
-  { texto: "En el patio hay 4 perros y llegan 2 más. ¿Cuántos perros hay ahora?", op: 'add',      nums: [4, 2],   answer: 6  },
-  { texto: "Ana juntó 3 piedras en el parque y 4 en la playa. ¿Cuántas piedras tiene?", op: 'add', nums: [3, 4],  answer: 7  },
+// Each exercise declares: text, nums (operands), answer (expected block count).
+const exercises = [
+  { text: "María tiene 2 manzanas y Juan tiene 3. ¿Cuántas tienen en total?", nums: [2, 3], answer: 5 },
+  { text: "En el patio hay 4 perros y llegan 2 más. ¿Cuántos perros hay ahora?", nums: [4, 2], answer: 6 },
+  { text: "Ana juntó 3 piedras en el parque y 4 en la playa. ¿Cuántas piedras tiene?", nums: [3, 4], answer: 7 },
 ];
 
-const lista = ref(statements.map(e => ({ ...e })));
-const exKeys = ref(statements.map((_, i) => i * 100));
-const resultados = ref(statements.map(() => null));
-const showGridLabels = ref(true);
+const keys = ref(exercises.map((_, i) => i * 100));
+const results = ref(exercises.map(() => null));
+const showLabels = ref(true);
 
-// Build the grid config for a given exercise.
-// One grid per operand + one answer grid on the right.
-const getGridsForExercise = (ex) => {
-  const { nums, answer } = ex;
-  const maxN = Math.max(...nums);
-  return [
-    ...nums.map(n => ({
+// Build the Blocks config for a given exercise.
+// One grid per operand (pre-filled) + one empty answer grid.
+const buildConfig = (ex, idx) => ({
+  inline: true,
+  inlineColumns: 2,
+  noSnap: true,
+  showToolbar: false,
+  showGridLabels: showLabels.value,
+  maxBloques: ex.answer * 2,
+  storageKey: `ex_${idx}_${keys.value[idx]}`,
+  grids: [
+    ...ex.nums.map(n => ({
       label: `${n}`,
       cols: n,
       rows: 1,
@@ -100,42 +94,42 @@ const getGridsForExercise = (ex) => {
     })),
     {
       label: 'Respuesta',
-      cols: Math.max(answer, maxN * 2),
+      cols: Math.max(ex.answer, Math.max(...ex.nums) * 2),
       rows: 2,
       initialBlocks: [],
       isAnswer: true,
       showLabel: true,
       showCount: false,
     },
-  ];
-};
+  ],
+});
 
+// Count blocks in the answer grid and compare to expected answer.
 const verify = (idx, ex) => {
-  const key = `grid_ex_${idx}_${exKeys.value[idx]}`;
-  const raw = localStorage.getItem(key);
+  const raw = localStorage.getItem(`ex_${idx}_${keys.value[idx]}`);
   const blocks = raw ? JSON.parse(raw) : [];
-  const answerGridId = ex.nums.length; // last grid is always the answer
+  const answerGridId = ex.nums.length; // answer grid is always the last one
   const inAnswer = blocks.filter(b => b.gridId === answerGridId).length;
 
   if (inAnswer === ex.answer) {
-    resultados.value[idx] = 'ok';
+    results.value[idx] = 'ok';
   } else {
-    resultados.value[idx] = 'mal';
+    results.value[idx] = 'bad';
     setTimeout(() => {
-      resultados.value[idx] = null;
-      exKeys.value[idx]++;
+      results.value[idx] = null;
+      keys.value[idx]++;
     }, 1000);
   }
 };
 
 const resetExercise = (idx) => {
-  resultados.value[idx] = null;
-  exKeys.value[idx]++;
+  results.value[idx] = null;
+  keys.value[idx]++;
 };
 
-const reiniciar = () => {
-  resultados.value = statements.map(() => null);
-  exKeys.value = exKeys.value.map(k => k + 1000);
+const resetAll = () => {
+  results.value = exercises.map(() => null);
+  keys.value = keys.value.map(k => k + 1000);
 };
 </script>
 
@@ -156,6 +150,7 @@ const reiniciar = () => {
   flex-direction: column;
 }
 
+/* ── Start screen ── */
 .center {
   display: flex;
   flex-direction: column;
@@ -169,6 +164,7 @@ const reiniciar = () => {
   font-size: 1.5rem;
 }
 
+/* ── Exercises screen ── */
 .page {
   height: 100vh;
   display: flex;
@@ -185,17 +181,16 @@ const reiniciar = () => {
   font-weight: 600;
   color: #333;
   flex-shrink: 0;
-  position: relative;
   z-index: 500;
 }
 
-.form-scroll {
+.exercise-scroll {
   flex: 1;
   overflow-y: auto;
   padding: 1.5rem 1rem 3rem;
 }
 
-.form-inner {
+.exercise-list {
   max-width: 860px;
   margin: 0 auto;
   display: flex;
@@ -203,6 +198,7 @@ const reiniciar = () => {
   gap: 1.5rem;
 }
 
+/* ── Exercise card ── */
 .ex-card {
   background: white;
   border-radius: 12px;
@@ -216,18 +212,18 @@ const reiniciar = () => {
   border-color: #10b981;
 }
 
-.ex-card--mal {
+.ex-card--bad {
   border-color: #ef4444;
 }
 
-.ex-card-top {
+.ex-header {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   padding: 0.9rem 1.25rem 0;
 }
 
-.ex-num {
+.ex-index {
   width: 28px;
   height: 28px;
   border-radius: 50%;
@@ -257,12 +253,12 @@ const reiniciar = () => {
   white-space: nowrap;
 }
 
-.badge-ok {
+.badge--ok {
   background: #d1fae5;
   color: #065f46;
 }
 
-.badge-mal {
+.badge--bad {
   background: #fee2e2;
   color: #991b1b;
 }
@@ -281,20 +277,7 @@ const reiniciar = () => {
   border-top: 1px solid #f3f4f6;
 }
 
-.btn-reset {
-  padding: 0.4rem 0.7rem;
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  color: #6b7280;
-}
-
-.btn-reset:hover {
-  background: #f9fafb;
-}
-
+/* ── Buttons ── */
 button {
   padding: 0.4rem 0.9rem;
   background: white;
@@ -314,19 +297,32 @@ button:hover {
 button:disabled {
   opacity: 0.6;
   cursor: default;
-  background: #d1fae5;
-  border-color: #10b981;
-  color: #065f46;
 }
 
-.btn-ok {
+.btn-verify {
   background: #10b981;
   border-color: #10b981;
   color: white;
   padding: 0.5rem 1.5rem;
 }
 
-.btn-ok:hover:not(:disabled) {
+.btn-verify:hover:not(:disabled) {
   background: #059669;
+}
+
+.btn-verify:disabled {
+  background: #d1fae5;
+  border-color: #10b981;
+  color: #065f46;
+}
+
+.btn-reset {
+  padding: 0.4rem 0.7rem;
+  border-color: #e5e7eb;
+  color: #6b7280;
+}
+
+.btn-reset:hover {
+  background: #f9fafb;
 }
 </style>

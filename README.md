@@ -4,7 +4,9 @@ BlockSystem es una aplicación educativa interactiva construida con Vue 3, centr
 
 La aplicación incluye una interfaz completa con modos de demostración y ejercicios prácticos de suma, diseñada para apoyar el aprendizaje de conceptos matemáticos básicos de manera visual e interactiva.
 
-`App.vue` sirve como implementación de referencia, mostrando cómo integrar y configurar `Blocks.vue` en una aplicación real, incluyendo configuraciones avanzadas y ejercicios educativos.
+`App.vue` sirve como implementación de referencia, mostrando cómo integrar y configurar `Blocks.vue` en una aplicación real, incluyendo configuraciones avanzadas y ejercicios educativos. El proyecto ahora documenta con más precisión el uso del modo `inline` para mostrar grids compactos en la demo de ejercicios, y mantiene `initialBlocks` como una forma general de precargar grupos de bloques sin depender de un layout fijo.
+
+Para detalles de la API y configuración de `Blocks.vue`, consulta `src/README.md`.
 
 ## Requisitos
 

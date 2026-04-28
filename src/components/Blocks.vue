@@ -74,16 +74,12 @@ const buildGridDefs = (rawGrids) =>
 
 const gridDefs = ref(buildGridDefs(cfg.value.grids));
 
-// ===== GRID COUNT =====
-const gridCount = ref(gridDefs.value.length);
 
-// Verdadero después del primer montaje — distingue recarga de página (false) de remount por parámetros (true)
+// True after first mount — distinguishes page reload (false) from prop-driven remount (true).
 let _hasBeenMounted = false;
 
-// ===== CONFIGURACIÓN =====
+// ===== COLORS =====
 const BLOCK_COLOR = "#EF4444";
-
-// ===== COLORES =====
 const COLORS_BY_SUM = {
   1: "#EF4444",
   2: "#F59E0B",
@@ -154,9 +150,6 @@ const colorGroupBySum = (group) => {
   });
 };
 
-// ===== TAMAÑO DE GRILLA (fallback global) =====
-const COLS = cfg.value.gridColumns;
-const ROWS = cfg.value.gridRows;
 
 // ===== CELL SIZE ADAPTATIVO (por grid) =====
 const MAX_CELL_SIZE = 45;
@@ -181,9 +174,9 @@ const updateContainerSize = () => {
 
 // Helpers por gridId — cada grid usa sus propias dims
 const getGridCols = (gridId) =>
-  gridDefs.value.find((g) => g.id === gridId)?.cols ?? COLS;
+  gridDefs.value.find((g) => g.id === gridId)?.cols ?? cfg.value.gridColumns;
 const getGridRows = (gridId) =>
-  gridDefs.value.find((g) => g.id === gridId)?.rows ?? ROWS;
+  gridDefs.value.find((g) => g.id === gridId)?.rows ?? cfg.value.gridRows;
 
 const getCellSize = (gridId) => {
   const cols = getGridCols(gridId);
@@ -195,7 +188,7 @@ const getCellSize = (gridId) => {
       const maxCols = Math.max(...gridDefs.value.map(g => g.cols));
 
       // Tamaño de la celda en pixeles.
-      const cellSize = Math.max(24, Math.min(40, Math.floor(360 / maxCols)));
+      const cellSize = Math.max(20, Math.min(36, Math.floor(330 / maxCols)));
       return cellSize;
     }
     // Layout flex-row original — usar altura del container
@@ -217,13 +210,9 @@ const getCellSize = (gridId) => {
 const getGridWidth = (gridId) => getGridCols(gridId) * getCellSize(gridId);
 const getGridHeight = (gridId) => getGridRows(gridId) * getCellSize(gridId);
 
-// Compatibilidad con código legado
+// Cell size of the first grid — used by border rendering.
 const CELL_SIZE = computed(() => getCellSize(gridDefs.value[0]?.id ?? 0));
-const gridWidth = computed(() => getGridWidth(gridDefs.value[0]?.id ?? 0));
-const gridHeight = computed(() => getGridHeight(gridDefs.value[0]?.id ?? 0));
 
-// ===== GRID COLLISION CHECK (no longer needed for fixed grids) =====
-const doesGridOverlap = () => false;
 
 const onResize = () => {
   viewportW.value = window.innerWidth;
@@ -232,8 +221,8 @@ const onResize = () => {
   borderStyleCache.clear();
 };
 
-// ===== FACTORY DE BLOQUE =====
-// Todos los bloques son siempre 1×1
+// ===== BLOCK FACTORY =====
+// All blocks are 1×1 units.
 const createBlock = (gridX, gridY, id, gridId = 0) => ({
   id,
   type: "uno",
@@ -248,30 +237,27 @@ const createBlock = (gridX, gridY, id, gridId = 0) => ({
   units: [{ relX: 0, relY: 0, color: BLOCK_COLOR, baseColor: BLOCK_COLOR }],
 });
 
-// ===== ESTADO PRINCIPAL =====
+// ===== STATE =====
 const showOverlay = ref(false);
-const blocks = ref([]); // ← antes: shapes
-const selectedBlockId = ref(null); // ← antes: selectedShapeId
-const draggedBlockId = ref(null); // ← antes: draggingId
+const blocks = ref([]);
+const selectedBlockId = ref(null);
+const draggedBlockId = ref(null);
 const draggedBlockGrid = ref(0);
 // Posición del mouse para el ghost visual durante drag
 const ghostPos = ref({ x: 0, y: 0, visible: false });
 const isDragging = ref(false);
-const adjacentGroups = ref([]); // ← antes: shapeGroups
+const adjacentGroups = ref([]);
 const cuttingMode = ref(false);
 const connections = ref([]);
 const connectionsToCut = ref([]);
 
-// ===== DRAG STATE (antes: dragStart) =====
-// Separado en dos objetos con responsabilidades claras:
-//   dragState   → coordenadas del drag (posición de ratón y ancla)
-//   groupContext → qué bloques se están moviendo y sus posiciones originales
-const dragState = ref(null); // { mouseX, mouseY, anchorX, anchorY, lastValidDx, lastValidDy }
-const groupContext = ref(null); // { ids: [], initialPositions: [{ id, gridX, gridY }] }
+// ===== DRAG STATE =====
+// dragState    — mouse coordinates and anchor
+// groupContext — which blocks are moving and their original positions
+const dragState = ref(null);
+const groupContext = ref(null);
 
-// ===== POSICIÓN FIJA DE CADA GRID =====
-// Los grids no son arrastrables — su posición viene de gridDef.position
-const panelDrag = ref(null); // mantenido para compatibilidad, no se usa
+// Grid positions come from gridDef.position — grids are not draggable.
 
 // Calcula el estilo CSS fixed para cada posición
 const getGridPositionStyle = (gridId) => {
@@ -319,7 +305,7 @@ const getGridPositionStyle = (gridId) => {
   return styles[pos] ?? styles["top-left"];
 };
 
-// ===== TOAST =====
+// ===== TOAST NOTIFICATIONS =====
 const toastMessage = ref("");
 const showToast = ref(false);
 let toastTimer = null;
@@ -333,7 +319,7 @@ const showToastNotification = (message) => {
   }, 3000);
 };
 
-// ===== UNDO/REDO =====
+// ===== HISTORY (UNDO / REDO) =====
 const history = ref([]);
 const currentStep = ref(-1);
 const maxHistorySize = 10;
@@ -368,12 +354,12 @@ const redo = () => {
   }
 };
 
-// ===== CACHÉ Y TIMERS =====
+// ===== CACHE & TIMERS =====
 const borderStyleCache = new Map();
-let refreshGroupsTimer = null; // ← antes: checkAdjacentTimer
+let refreshGroupsTimer = null;
 let nextId = 1;
 
-// ===== PERSISTENCIA =====
+// ===== STORAGE =====
 const saveToStorage = () => {
   try {
     localStorage.setItem(cfg.value.storageKey, JSON.stringify(blocks.value));
@@ -425,15 +411,13 @@ const loadFromStorage = () => {
   }
 };
 
-// ===== UTILIDADES DE GRILLA =====
-// Todos los bloques son 1×1 — no se necesita getShapeDimensions
+// ===== GRID UTILITIES =====
 const getOccupiedCells = (block) => [{ x: block.gridX, y: block.gridY }];
 
 const getGridBlocks = (gridId) =>
   blocks.value.filter((b) => b.gridId === gridId);
 const getGridBlock = (gridId, id) =>
   blocks.value.find((b) => b.gridId === gridId && b.id === id);
-const gridIndices = computed(() => gridDefs.value.map((g) => g.id));
 
 const isPositionAvailable = (gridId, gridX, gridY, excludeId = null) => {
   const cols = getGridCols(gridId);
@@ -478,9 +462,9 @@ const findAvailablePosition = (gridId = 0) => {
   return null;
 };
 
-// ===== BORDES INTELIGENTES =====
-// Cada bloque oculta el lado donde tiene un vecino inmediato.
-// Como ambos bloques ocultan el lado compartido, no hay borde doble.
+// ===== SMART BORDERS =====
+// Each block hides the side facing an immediate neighbor,
+// so shared edges are never drawn twice.
 const getHiddenBorders = computed(() => {
   const hidden = new Map();
   blocks.value.forEach((block) => {
@@ -526,15 +510,15 @@ const getBorderStyle = (block) => {
   return result;
 };
 
-// ===== DETECCIÓN DE ADYACENCIA =====
-// Solo horizontal (mismo Y, X separados por exactamente 1)
+// ===== ADJACENCY =====
+// Horizontal only: same Y, X exactly 1 apart.
 const areAdjacent = (b1, b2) =>
   b1.gridId === b2.gridId &&
   Math.abs(b1.gridX - b2.gridX) === 1 &&
   b1.gridY === b2.gridY;
 
-// ===== RECÁLCULO DE GRUPOS (antes: checkAdjacentBlocks / checkAdjacentBlocksImmediate) =====
-// Con { immediate: true } se ejecuta sin debounce (para Undo/Redo)
+// ===== GROUP REFRESH =====
+// Pass { immediate: true } to skip debounce (used by undo/redo).
 const refreshGroups = ({ immediate = false } = {}) => {
   if (!immediate) {
     if (refreshGroupsTimer) clearTimeout(refreshGroupsTimer);
@@ -546,7 +530,7 @@ const refreshGroups = ({ immediate = false } = {}) => {
 
 const refreshGroupsNow = () => {
   if (cfg.value.noSnap) {
-    // Sin acoplamiento: todos los bloques aislados, sin conexiones
+    // No snap: all blocks isolated, no connections.
     blocks.value.forEach(b => { b.isConnected = false; b.groupSum = null; delete b.visuallySeparated; });
     adjacentGroups.value = [];
     connections.value = [];
@@ -554,7 +538,7 @@ const refreshGroupsNow = () => {
     return;
   }
 
-  // Construir grupos por adyacencia
+  // Build groups by adjacency.
   const groups = [];
   blocks.value.forEach((b1) => {
     blocks.value.forEach((b2) => {
@@ -571,7 +555,7 @@ const refreshGroupsNow = () => {
     });
   });
 
-  // Consolidar grupos solapados
+  // Merge overlapping groups.
   let changed = true;
   while (changed) {
     changed = false;
@@ -590,7 +574,7 @@ const refreshGroupsNow = () => {
 
   adjacentGroups.value = groups;
 
-  // Restaurar colores base antes de colorear por grupo
+  // Reset base colors before re-coloring groups.
   blocks.value.forEach((b) => {
     if (b.units)
       b.units.forEach((u) => {
@@ -598,7 +582,7 @@ const refreshGroupsNow = () => {
       });
   });
 
-  // Asignar estado de grupo a cada bloque
+  // Assign group state to each block.
   blocks.value.forEach((block) => {
     const group = groups.find((g) => g.includes(block.id));
     if (group) {
@@ -619,8 +603,8 @@ const refreshGroupsNow = () => {
   borderStyleCache.clear();
 };
 
-// ===== CONEXIONES (líneas para modo corte) — por grid =====
-// Cada grid solo renderiza sus propias conexiones (filtrado en template por gridId)
+// ===== CONNECTIONS (cut-mode lines) =====
+// Each grid renders only its own connections, filtered by gridId.
 const updateConnections = () => {
   const all = [];
   const seen = new Set();
@@ -675,7 +659,7 @@ const getConnectionsBetween = (id1, id2) => {
   return list;
 };
 
-// ===== SEPARACIÓN DE BLOQUES =====
+// ===== BLOCK SEPARATION =====
 const getConnectedSubgroup = (startId, excludeId) => {
   const visited = new Set();
   const subgroup = [];
@@ -780,7 +764,7 @@ const separateBlocks = (block1, block2) => {
   if (tryMove(subgroupToMove, vertical)) return true;
   if (tryMove(otherSubgroup, vertical)) return true;
 
-  // Fallback: separación visual (sin movimiento físico)
+  // Fallback: visual separation (no physical move).
   subgroupToMove.forEach((id) => {
     const b = blocks.value.find((s) => s.id === id);
     if (b) b.visuallySeparated = true;
@@ -788,9 +772,9 @@ const separateBlocks = (block1, block2) => {
   return true;
 };
 
-// ===== MODO CORTE (SNAP-TO-LINE) =====
+// ===== CUT MODE =====
 const cutState = ref({
-  // ← antes: snapToLineState
+
   active: false,
   currentConnection: null,
   startProgress: null,
@@ -910,7 +894,7 @@ const handleSnapCutMove = (e) => {
   cutState.value.currentProgress = nearest.progress;
   cutState.value.currentConnection = nearest.connection;
 
-  // Cortar conexiones que el trazo cruzó
+  // Cut any connections the stroke crossed.
   if (prevPos && prevConn) {
     const dx = nearest.snappedPoint.x - prevPos.x;
     const dy = nearest.snappedPoint.y - prevPos.y;
@@ -971,7 +955,7 @@ const handleSnapCutEnd = () => {
   };
 };
 
-// ===== MOVIMIENTO GRUPAL =====
+// ===== GROUP MOVEMENT =====
 const isGroupMoveLegal = (groupIds, dx, dy, targetGridId) => {
   const cols = getGridCols(targetGridId);
   const rows = getGridRows(targetGridId);
@@ -1040,7 +1024,7 @@ const findSnapPosition = (block, targetX, targetY, targetGridId) => {
   return best || { x: targetX, y: targetY };
 };
 
-// ===== VERIFICACIÓN DE LÍMITE DE GRUPO =====
+// ===== GROUP SIZE LIMIT CHECK =====
 const simulateMoveExceedsLimit = (
   movingIds,
   initialPositions,
@@ -1120,9 +1104,7 @@ const simulateMoveExceedsLimit = (
   return { valid: true, totalUnits: 0, message: "" };
 };
 
-// ===== ACCIONES =====
-// addGrid solo se usa internamente si se necesita en el futuro
-// Los grids se definen desde App.vue via prop :grids
+// ===== ACTIONS =====
 
 const addBlock = (gridId = 0) => {
   const gridBlocks = getGridBlocks(gridId);
@@ -1156,7 +1138,7 @@ const clearAll = () => {
   saveToHistory();
 };
 
-// ===== EVENT HANDLERS =====
+// ===== EVENTS =====
 const handleBlockMouseDown = (e, blockId, gridId) => {
   if (cuttingMode.value) return;
   e.stopPropagation();
@@ -1226,7 +1208,7 @@ const handleMouseMove = (e) => {
   const hit = findGridAtPoint(e.clientX, e.clientY);
 
   // Actualizar ghost: siempre sigue al mouse
-  if (cfg.inline && containerRef.value) {
+  if (cfg.value.inline && containerRef.value) {
     const cr = containerRef.value.getBoundingClientRect();
     ghostPos.value = {
       x: e.clientX - cr.left,
@@ -1405,13 +1387,8 @@ const handleCutModeMouseDown = (e) => {
 const toggleOverlay = () => (showOverlay.value = !showOverlay.value);
 const closeOverlay = () => (showOverlay.value = false);
 
-// ===== DRAG DEL PANEL FLOTANTE =====
-// Grids son fijos — sin drag
-const handlePanelDragStart = () => { };
-const handlePanelDragMove = () => { };
-const handlePanelDragEnd = () => { };
 
-// ===== POSICIONAMIENTO ALEATORIO =====
+// ===== RANDOM PLACEMENT HELPERS =====
 const makeOccupancyTracker = (gridId) => {
   const cols = getGridCols(gridId);
   const rows = getGridRows(gridId);
@@ -1438,7 +1415,7 @@ const makeOccupancyTracker = (gridId) => {
   return { isFree, mark };
 };
 
-// Shuffle solo los bloques del grid activo (el que tiene el foco de la toolbar)
+// Shuffle all blocks in a specific grid.
 const shuffleGrid = (gridId) => {
   const cols = getGridCols(gridId);
   const rows = getGridRows(gridId);
@@ -1476,38 +1453,70 @@ const shuffleGrid = (gridId) => {
   saveToHistory();
 };
 
-// ===== INITIAL BLOCKS =====
+// ===== INITIAL BLOCK PLACEMENT =====
 const createInitialBlocks = () => {
   blocks.value = [];
 
   gridDefs.value.forEach((gridDef) => {
     if (!gridDef.initialBlocks?.length) return;
-
+    const cols = gridDef.cols;
+    const rows = gridDef.rows;
+    const midW = Math.floor(cols / 2);
+    const midH = Math.floor(rows / 2);
     const gId = gridDef.id;
 
-    // Sum all values — we don't care about groups, just total count.
-    const total = gridDef.initialBlocks.reduce((a, b) => a + b, 0);
-    if (total <= 0) return;
+    const layouts = {
+      1: [{ x0: 0, y0: 0, x1: cols, y1: rows }],
+      2: [
+        { x0: 0, y0: 0, x1: cols, y1: midH },
+        { x0: 0, y0: midH, x1: cols, y1: rows },
+      ],
+      3: [
+        { x0: 0, y0: 0, x1: cols, y1: midH },
+        { x0: 0, y0: midH, x1: midW, y1: rows },
+        { x0: midW, y0: midH, x1: cols, y1: rows },
+      ],
+      4: [
+        { x0: 0, y0: 0, x1: midW, y1: midH },
+        { x0: midW, y0: 0, x1: cols, y1: midH },
+        { x0: 0, y0: midH, x1: midW, y1: rows },
+        { x0: midW, y0: midH, x1: cols, y1: rows },
+      ],
+    };
 
-    // Build a shuffled list of every cell in this grid.
-    const cells = [];
-    for (let y = 0; y < gridDef.rows; y++)
-      for (let x = 0; x < gridDef.cols; x++)
-        cells.push({ x, y });
+    const getQuadrant = (index, total) => {
+      if (total <= 4 && layouts[total]) return layouts[total][index];
+      return layouts[4][index % 4];
+    };
 
-    for (let i = cells.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [cells[i], cells[j]] = [cells[j], cells[i]];
-    }
+    const placeGroupInQuadrant = (count, q) => {
+      const occupied = new Set();
+      const candidates = [];
+      for (let y = q.y0; y < q.y1; y++)
+        for (let x = q.x0; x < q.x1; x++) candidates.push({ x, y });
 
-    // Place blocks one by one — isPositionAvailable handles bounds + collisions.
-    let placed = 0;
-    for (const { x, y } of cells) {
-      if (placed >= total) break;
-      if (!isPositionAvailable(gId, x, y)) continue;
-      blocks.value.push(createBlock(x, y, nextId++, gId));
-      placed++;
-    }
+      for (let i = candidates.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+      }
+
+      let placed = 0;
+      for (const { x, y } of candidates) {
+        if (placed >= count) break;
+        if (occupied.has(`${x},${y}`)) continue;
+        if (!isPositionAvailable(gId, x, y)) continue;
+        blocks.value.push(createBlock(x, y, nextId++, gId));
+        occupied.add(`${x},${y}`);
+        placed++;
+      }
+    };
+
+    gridDef.initialBlocks.forEach((count, index) => {
+      placeGroupInQuadrant(
+        count,
+        getQuadrant(index, gridDef.initialBlocks.length),
+      );
+    });
   });
 
   refreshGroups();
@@ -1515,9 +1524,9 @@ const createInitialBlocks = () => {
   saveToStorage();
 };
 
-// ===== TECLADO =====
+// ===== KEYBOARD =====
 const handleKeyDown = (e) => {
-  // Detects input in the area
+  // Skip shortcuts when typing in an input.
   const inInput = ["INPUT", "TEXTAREA"].includes(
     document.activeElement.tagName,
   );
@@ -1533,7 +1542,7 @@ const handleKeyDown = (e) => {
   }
   if ((e.key === "s" || e.key === "S") && !inInput) {
     e.preventDefault();
-    shuffleOrGenerate();
+    shuffleGrid(gridDefs.value[0]?.id ?? 0);
   }
 };
 
@@ -1558,8 +1567,6 @@ onMounted(() => {
   document.addEventListener("mouseup", handleMouseUp);
   document.addEventListener("mousemove", handleSnapCutMove);
   document.addEventListener("mouseup", handleSnapCutEnd);
-  document.addEventListener("mousemove", handlePanelDragMove);
-  document.addEventListener("mouseup", handlePanelDragEnd);
   window.addEventListener("resize", onResize);
   document.addEventListener("keydown", handleKeyDown);
 });
@@ -1569,8 +1576,6 @@ onUnmounted(() => {
   document.removeEventListener("mouseup", handleMouseUp);
   document.removeEventListener("mousemove", handleSnapCutMove);
   document.removeEventListener("mouseup", handleSnapCutEnd);
-  document.removeEventListener("mousemove", handlePanelDragMove);
-  document.removeEventListener("mouseup", handlePanelDragEnd);
   document.removeEventListener("keydown", handleKeyDown);
   window.removeEventListener("resize", onResize);
 });
@@ -1578,9 +1583,9 @@ onUnmounted(() => {
 
 <template>
   <div>
-    <!-- ========== MODO INLINE ========== -->
+    <!-- ===== INLINE MODE ===== -->
     <div v-if="cfg.inline" ref="containerRef" class="inline-grids-container" @mousedown="handleGridCanvasClick">
-      <!-- Zona izquierda: sumandos apilados, fit-content -->
+      <!-- Left zone: operand grids stacked, fit-content -->
       <template v-if="cfg.inlineColumns > 0">
         <div class="inline-zone-left">
           <div v-for="(gridDef, gIdx) in gridDefs.filter(g => !g.isAnswer)" :key="gridDef.id" class="sumando-wrapper">
@@ -1630,15 +1635,15 @@ onUnmounted(() => {
                 <button @click="shuffleGrid(gridDef.id)" class="tool-btn" title="Mezclar">🔀</button>
               </div>
             </div>
-            <!-- Número debajo del grid -->
+            <!-- Label below grid -->
             <div v-if="cfg.showGridLabels" class="sumando-num-label">{{ gridDef.label }}</div>
           </div>
         </div>
 
-        <!-- Separador eliminado — espacio en blanco -->
+        <!-- Spacer between operands and answer -->
         <div class="inline-spacer"></div>
 
-        <!-- Zona derecha: grid respuesta -->
+        <!-- Right zone: answer grid -->
         <div class="inline-zone-right">
           <div v-for="gridDef in gridDefs.filter(g => g.isAnswer)" :key="gridDef.id" class="sumando-wrapper">
             <div class="grid-center inline-grid inline-grid-dashed inline-grid-answer" :data-grid-index="gridDef.id"
@@ -1676,17 +1681,17 @@ onUnmounted(() => {
                   :style="{ backgroundColor: BLOCK_COLOR }" title="Agregar bloque">+1</button>
               </div>
             </div>
-            <!-- Label debajo del grid de respuesta -->
+            <!-- Label below answer grid -->
             <div v-if="cfg.showGridLabels" class="sumando-num-label sumando-num-label--answer">{{ gridDef.label }}</div>
           </div>
         </div>
       </template>
 
-      <!-- ── Modo flex-row original (inlineColumns === 0) ── -->
+      <!-- Flex-row mode (inlineColumns === 0) -->
       <template v-else>
         <div v-for="gridDef in gridDefs" :key="gridDef.id" class="grid-center inline-grid" :data-grid-index="gridDef.id"
           @mousedown.stop @mousedown.capture="handleCutModeMouseDown">
-          <!-- Titlebar (ocultable) -->
+          <!-- Titlebar (optional) -->
           <div v-if="gridDef.showLabel" class="grid-titlebar">
             <span></span><span></span>
             <span class="grid-titlebar-label">{{ gridDef.label }}</span>
@@ -1697,7 +1702,7 @@ onUnmounted(() => {
             </span>
           </div>
 
-          <!-- Cuerpo del grid -->
+          <!-- Grid body -->
           <div class="grid-body" :class="{ 'grid-body--no-titlebar': !gridDef.showLabel }">
             <div class="grid-transparent" :class="{ 'cutting-cursor': cuttingMode }" :style="{
               width: getGridWidth(gridDef.id) + 'px',
@@ -1712,7 +1717,7 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <!-- Capa de bloques -->
+            <!-- Blocks layer -->
             <div class="blocks-layer-transparent" :style="{
               width: getGridWidth(gridDef.id) + 'px',
               height: getGridHeight(gridDef.id) + 'px',
@@ -1726,13 +1731,13 @@ onUnmounted(() => {
                   'no-hover': cuttingMode,
                   'visually-separated': block.visuallySeparated,
                 }" :style="{
-                left: block.gridX * getCellSize(gridDef.id) + 'px',
-                top: block.gridY * getCellSize(gridDef.id) + 'px',
-                width: getCellSize(gridDef.id) + 'px',
-                height: getCellSize(gridDef.id) + 'px',
-                position: 'absolute',
-                backgroundColor: 'transparent',
-              }">
+                  left: block.gridX * getCellSize(gridDef.id) + 'px',
+                  top: block.gridY * getCellSize(gridDef.id) + 'px',
+                  width: getCellSize(gridDef.id) + 'px',
+                  height: getCellSize(gridDef.id) + 'px',
+                  position: 'absolute',
+                  backgroundColor: 'transparent',
+                }">
                 <template v-if="block.units?.length > 0">
                   <div v-for="(unit, i) in block.units" :key="i" class="unit-cube" :style="{
                     position: 'absolute',
@@ -1828,7 +1833,7 @@ onUnmounted(() => {
             </span>
           </div>
 
-          <!-- Cuerpo del grid -->
+          <!-- Grid body -->
           <div class="grid-body">
             <div class="grid-transparent" :class="{ 'cutting-cursor': cuttingMode }" :style="{
               width: getGridWidth(gridDef.id) + 'px',
@@ -1843,7 +1848,7 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <!-- Capa de bloques -->
+            <!-- Blocks layer -->
             <div class="blocks-layer-transparent" :style="{
               width: getGridWidth(gridDef.id) + 'px',
               height: getGridHeight(gridDef.id) + 'px',
@@ -2052,7 +2057,7 @@ onUnmounted(() => {
   transform: scale(1.1);
 }
 
-/* Grid fijo — posicionado via inline style con getGridPositionStyle() */
+/* Fixed grid — positioned via getGridPositionStyle() */
 .grid-center {
   position: fixed;
   display: inline-flex;
@@ -2361,7 +2366,7 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-/* ===== MODO INLINE ===== */
+/* ===== INLINE MODE ===== */
 .inline-grids-container {
   display: flex;
   flex-direction: row;
@@ -2376,7 +2381,7 @@ onUnmounted(() => {
   overflow: visible;
 }
 
-/* Zona izquierda: sumandos apilados, fit-content */
+/* Left zone: operand grids stacked */
 .inline-zone-left {
   display: flex;
   flex-direction: column;
@@ -2386,7 +2391,7 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-/* Wrapper de cada sumando: grid + número abajo */
+/* Wrapper for each operand: grid + label below */
 .sumando-wrapper {
   display: flex;
   flex-direction: column;
@@ -2410,13 +2415,13 @@ onUnmounted(() => {
   letter-spacing: 0.05em;
 }
 
-/* Espacio entre sumandos y respuesta */
+/* Spacer between operands and answer */
 .inline-spacer {
   width: 24px;
   flex-shrink: 0;
 }
 
-/* Zona derecha: respuesta */
+/* Right zone: answer grid */
 .inline-zone-right {
   display: flex;
   align-items: center;
@@ -2424,7 +2429,7 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-/* Los grids en modo inline son fit-content — sin estirarse */
+/* Inline grids are fit-content — no stretching */
 .inline-grid {
   position: relative !important;
   top: auto !important;
@@ -2436,7 +2441,7 @@ onUnmounted(() => {
   width: fit-content !important;
 }
 
-/* Grids de sumandos: contorno punteado, sin fondo sólido */
+/* Operand grids: dashed outline, transparent background */
 .inline-grid-dashed {
   background: transparent !important;
   box-shadow: none !important;
@@ -2444,7 +2449,7 @@ onUnmounted(() => {
   border-radius: 10px !important;
 }
 
-/* Sin titlebar: border-radius completo */
+/* No titlebar: full border-radius */
 .grid-body--no-titlebar {
   border-radius: 10px 10px 10px 10px !important;
 }
@@ -2453,7 +2458,7 @@ onUnmounted(() => {
   border-radius: 10px !important;
 }
 
-/* Ghost visual durante drag fuera del grid */
+/* Visual ghost when dragging outside a grid */
 .drag-ghost {
   position: absolute;
   pointer-events: none;
