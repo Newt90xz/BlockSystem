@@ -25,7 +25,7 @@ Está diseñado como herramienta educativa para explorar el agrupamiento de unid
 - El estado se persiste en `localStorage` entre sesiones; se borra en recarga completa de página
 - La toolbar se puede ocultar vía prop para experiencias de solo lectura o restringidas
 - Soporte para múltiples grids con posiciones y configuraciones personalizadas
-- Modo inline para renderizado directo sin overlays
+- Modo inline para renderizado directo sin overlays y presentación compacta en la demo de ejercicios
 - Etiquetas y conteos configurables por grid
 
 ---
@@ -39,9 +39,9 @@ Está diseñado como herramienta educativa para explorar el agrupamiento de unid
 | `maxBloques` | `Number` | `Infinity` | Número máximo de bloques permitidos en la cuadrícula |
 | `maxPorGrupo` | `Number` | `Infinity` | Número máximo de unidades permitidas en un grupo conectado |
 | `cantidadBl` | `Number` | `10` | Número de bloques generados al barajar una cuadrícula vacía |
-| `initialBlocks` | `Array<Number>` | `[]` | Precarga bloques en el primer montaje. Cada número es un conteo de grupo colocado en diferentes zonas de la cuadrícula. Ver abajo. |
+| `initialBlocks` | `Array<Number>` | `[]` | Precarga bloques en el primer montaje. Cada número indica cuántos bloques agrupar en cada zona del grid. |
 | `showToolbar` | `Boolean` | `true` | Muestra u oculta la barra de herramientas (+1, 🔀, ✂️, ↶, ↷, 🗑️) |
-| `grids` | `Array<Object>` | `[]` | Array de configuraciones de grids múltiples. Cada objeto puede incluir `label`, `cols`, `rows`, `position`, `initialBlocks`, `isAnswer`, `showLabel`, `showCount` |
+| `grids` | `Array<Object>` | `[]` | Array de configuraciones de grids múltiples. Cada objeto describe un grid independiente (sumando, resultado, etc.) usado especialmente en ejercicios. Puede incluir `label`, `cols`, `rows`, `position`, `initialBlocks`, `isAnswer`, `showLabel`, `showCount`. |
 | `inline` | `Boolean` | `false` | Renderiza los grids directamente sin overlay fullscreen ni FAB |
 | `inlineColumns` | `Number` | `0` | Número de columnas CSS para el contenedor inline (por defecto 'auto' = flex-row) |
 | `storageKey` | `String` | `'grid_blocks_data'` | Clave de localStorage para persistir el estado de los grids |
@@ -50,7 +50,7 @@ Está diseñado como herramienta educativa para explorar el agrupamiento de unid
 
 ### Configuración de Grids Múltiples
 
-Cuando se proporciona el prop `grids`, el componente renderiza múltiples grids en lugar de uno solo. Cada grid en el array puede tener configuraciones individuales:
+Cuando se proporciona el prop `grids`, el componente renderiza múltiples grids en lugar de uno solo. Cada objeto dentro del array describe un grid independiente y permite armar por separado los elementos de cada ejercicio: por ejemplo, un grid para cada sumando y otro grid para la respuesta.
 
 - `label`: Etiqueta personalizada para el grid (por defecto "Grid N")
 - `cols` / `rows`: Dimensiones específicas
@@ -59,29 +59,14 @@ Cuando se proporciona el prop `grids`, el componente renderiza múltiples grids 
 - `isAnswer`: Marca el grid como área de respuesta
 - `showLabel` / `showCount`: Controla la visibilidad de etiquetas y conteos
 
+En ejercicios de suma, `grids` se usa para generar los grids de cada sumando y un grid final de respuesta. Cada objeto puede representar un sumando distinto o el espacio donde el alumno debe colocar el resultado. El modo `inline` se utiliza en la demo para mostrar los grids de forma compacta en la misma interfaz, con `inlineColumns` controlando la disposición horizontal/vertical y `showGridLabels` para ajustar la presentación del ejercicio.
+
 ```vue
 <Blocks :grids="[
   { label: 'Sumando 1', cols: 5, rows: 1, initialBlocks: [3], showLabel: false },
   { label: 'Sumando 2', cols: 5, rows: 1, initialBlocks: [4], showLabel: false },
-  { label: 'Respuesta', cols: 10, rows: 2, initialBlocks: [], isAnswer: true }
+  { label: 'Respuesta', cols: 10, rows: 2, initialBlocks: [], isAnswer: true, showLabel: true }
 ]" :inline="true" :inlineColumns="1" />
-```
-
-### `initialBlocks` Layout
-
-El array define cuántos bloques van en cada zona, distribuidos en la cuadrícula según el número de grupos:
-
-| Grupos | Layout |
-|---|---|
-| 1 | Cuadrícula completa |
-| 2 | Superior / Inferior |
-| 3 | Superior (ancho completo) / Inferior-izq / Inferior-der |
-| 4 | Superior-izq / Superior-der / Inferior-izq / Inferior-der |
-| 5+ | Cicla a través del layout de 4 cuadrantes |
-
-```vue
-<!-- 3 bloques arriba, 5 abajo-izq, 2 abajo-der -->
-<Blocks :initialBlocks="[3, 5, 2]" />
 ```
 
 > Si `showToolbar` es `false`, `initialBlocks` debe proporcionarse — de lo contrario no hay forma de agregar bloques a la cuadrícula.
