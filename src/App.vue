@@ -32,17 +32,33 @@
               <span v-else-if="results[idx] === 'bad'" class="badge badge--bad">✗ Try again</span>
             </div>
 
-            <!-- Grids -->
+            <!-- Grids + Dropzone -->
             <div class="ex-grids">
-              <Blocks :key="keys[idx]" :config="buildConfig(ex, idx)" />
+              <div class="ex-grids-row">
+                <Blocks
+                  :ref="el => blocksRefs[idx] = el"
+                  :key="keys[idx]"
+                  :config="buildConfig(ex, idx)"
+                />
+                <div
+                  :ref="el => dropzoneRefs[idx] = el"
+                  class="dropzone"
+                  :class="{
+                    'dropzone--hover': dropzoneHover[idx],
+                    'dropzone--ok':    results[idx] === 'ok',
+                    'dropzone--bad':   results[idx] === 'bad',
+                  }"
+                >
+                  <span class="dropzone-icon">
+                    {{ results[idx] === 'ok' ? '📬' : dropzoneHover[idx] ? '📭' : '📭' }}
+                  </span>
+                </div>
+              </div>
             </div>
 
             <!-- Footer -->
             <div class="ex-footer">
-              <button class="btn-verify" :disabled="results[idx] === 'ok'" @click="verify(idx, ex)">
-                {{ results[idx] === 'ok' ? 'Correcto!' : 'Check' }}
-              </button>
-              <button class="btn-reset" @click="resetExercise(idx)">↺</button>
+              <button class="btn-reset" @click="resetExercise(idx)">↺ Reset</button>
             </div>
           </div>
 
@@ -54,73 +70,114 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import Blocks from './components/Blocks.vue';
 
 // ── SCREEN ──
 const screen = ref(null);
 
 // ── EXERCISES ──
-// Each exercise declares: text, nums (operands), answer (expected block count).
 const exercises = [
   { text: "María tiene 2 manzanas y Juan tiene 3. ¿Cuántas tienen en total?", nums: [2, 3], answer: 5 },
   { text: "En el patio hay 4 perros y llegan 2 más. ¿Cuántos perros hay ahora?", nums: [4, 2], answer: 6 },
   { text: "Ana juntó 3 piedras en el parque y 4 en la playa. ¿Cuántas piedras tiene?", nums: [3, 4], answer: 7 },
 ];
 
-const keys = ref(exercises.map((_, i) => i * 100));
-const results = ref(exercises.map(() => null));
-const showLabels = ref(true);
+const keys        = ref(exercises.map((_, i) => i * 100));
+const results     = ref(exercises.map(() => null));
+const showLabels  = ref(true);
+const blocksRefs  = ref(exercises.map(() => null));  // refs to each Blocks instance
+const dropzoneRefs = ref(exercises.map(() => null)); // refs to each dropzone div
+const dropzoneHover = ref(exercises.map(() => false)); // hover highlight per exercise
+
+// Grid shape: odd → n×1, even → 2 cols × n/2 rows.
+const gridShape = (n) => n % 2 === 0
+  ? { cols: 2, rows: n / 2 }
+  : { cols: n, rows: 1 };
 
 // Build the Blocks config for a given exercise.
-// One grid per operand (pre-filled) + one empty answer grid.
+// Operand grids: noSnap true. Banca grid: noSnap false (blocks can connect).
 const buildConfig = (ex, idx) => ({
-  inline: true,
-  inlineColumns: 2,
-  noSnap: true,
-  showToolbar: false,
+  inline:         true,
+  inlineColumns:  2,
+  showToolbar:    false,
   showGridLabels: showLabels.value,
-  maxBloques: ex.answer * 2,
-  storageKey: `ex_${idx}_${keys.value[idx]}`,
+  maxBloques:     ex.answer * 2,
+  storageKey:     `ex_${idx}_${keys.value[idx]}`,
   grids: [
     ...ex.nums.map(n => ({
-      label: `${n}`,
-      cols: n,
-      rows: 1,
+      label:         `${n}`,
+      ...gridShape(n),
       initialBlocks: [n],
-      isAnswer: false,
-      showLabel: false,
-      showCount: false,
+      isAnswer:      false,
+      showLabel:     false,
+      showCount:     false,
+      noSnap:        true,
     })),
     {
-      label: 'Respuesta',
-      cols: Math.max(ex.answer, Math.max(...ex.nums) * 2),
-      rows: 2,
+      label:         'Banca',
+      cols:          Math.max(ex.answer, Math.max(...ex.nums) * 2),
+      rows:          2,
       initialBlocks: [],
-      isAnswer: true,
-      showLabel: true,
-      showCount: false,
+      isAnswer:      true,
+      showLabel:     true,
+      showCount:     false,
+      noSnap:        false,
     },
   ],
 });
 
-// Count blocks in the answer grid and compare to expected answer.
-const verify = (idx, ex) => {
-  const raw = localStorage.getItem(`ex_${idx}_${keys.value[idx]}`);
-  const blocks = raw ? JSON.parse(raw) : [];
-  const answerGridId = ex.nums.length; // answer grid is always the last one
-  const inAnswer = blocks.filter(b => b.gridId === answerGridId).length;
-
-  if (inAnswer === ex.answer) {
-    results.value[idx] = 'ok';
-  } else {
-    results.value[idx] = 'bad';
-    setTimeout(() => {
-      results.value[idx] = null;
-      keys.value[idx]++;
-    }, 1000);
-  }
+// Check if a point is inside a DOM element's bounding rect.
+const isOverElement = (el, x, y) => {
+  if (!el) return false;
+  const r = el.getBoundingClientRect();
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 };
+
+// On every document mouseup, check if the mouse released over any dropzone.
+// This fires after Blocks.vue's own mouseup, so the groups are already updated.
+const onDocumentMouseUp = (e) => {
+  exercises.forEach((ex, idx) => {
+    dropzoneHover.value[idx] = false;
+    if (!isOverElement(dropzoneRefs.value[idx], e.clientX, e.clientY)) return;
+    if (results.value[idx] === 'ok') return;
+
+    const instance  = blocksRefs.value[idx];
+    if (!instance) return;
+
+    const bancaGridId = ex.nums.length; // banca is always the last grid
+    const groups      = instance.getConnectedGroups();
+    const bancaGroups = groups.filter(g => g.gridId === bancaGridId);
+    const correct     = bancaGroups.length === 1 && bancaGroups[0].count === ex.answer;
+
+    if (correct) {
+      results.value[idx] = 'ok';
+    } else {
+      results.value[idx] = 'bad';
+      setTimeout(() => {
+        results.value[idx] = null;
+        keys.value[idx]++;
+      }, 1000);
+    }
+  });
+};
+
+// Update dropzone hover highlight during drag.
+const onDocumentMouseMove = (e) => {
+  exercises.forEach((_, idx) => {
+    dropzoneHover.value[idx] = isOverElement(dropzoneRefs.value[idx], e.clientX, e.clientY);
+  });
+};
+
+onMounted(() => {
+  document.addEventListener('mouseup',   onDocumentMouseUp);
+  document.addEventListener('mousemove', onDocumentMouseMove);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('mouseup',   onDocumentMouseUp);
+  document.removeEventListener('mousemove', onDocumentMouseMove);
+});
 
 const resetExercise = (idx) => {
   results.value[idx] = null;
@@ -264,9 +321,60 @@ const resetAll = () => {
 }
 
 .ex-grids {
-  min-height: 120px;
   padding: 8px 0;
   overflow: visible;
+}
+
+.ex-grids-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 12px;
+}
+
+/* Dropzone */
+.dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: 2px dashed #94a3b8;
+  border-radius: 10px;
+  flex-shrink: 0;
+  align-self: center;
+  transition: transform 0.15s ease, border-color 0.15s, background 0.15s;
+  cursor: default;
+}
+
+.dropzone--hover {
+  border-color: #6366f1;
+  background: rgba(99,102,241,0.06);
+  transform: scale(1.12);
+}
+
+.dropzone--ok {
+  border-color: #10b981;
+  background: rgba(16,185,129,0.06);
+  transform: scale(1.0);
+}
+
+.dropzone--bad {
+  border-color: #ef4444;
+  background: rgba(239,68,68,0.06);
+}
+
+.dropzone-icon {
+  font-size: 2rem;
+  pointer-events: none;
+  transition: transform 0.15s ease;
+  line-height: 1;
+  user-select: none;
+}
+
+.dropzone--hover .dropzone-icon {
+  transform: scale(1.1);
 }
 
 .ex-footer {
@@ -297,23 +405,6 @@ button:hover {
 button:disabled {
   opacity: 0.6;
   cursor: default;
-}
-
-.btn-verify {
-  background: #10b981;
-  border-color: #10b981;
-  color: white;
-  padding: 0.5rem 1.5rem;
-}
-
-.btn-verify:hover:not(:disabled) {
-  background: #059669;
-}
-
-.btn-verify:disabled {
-  background: #d1fae5;
-  border-color: #10b981;
-  color: #065f46;
 }
 
 .btn-reset {

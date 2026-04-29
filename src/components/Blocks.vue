@@ -60,6 +60,7 @@ const buildGridDefs = (rawGrids) =>
       isAnswer: g.isAnswer ?? false,
       showLabel: g.showLabel ?? true,
       showCount: g.showCount ?? true,
+      noSnap: g.noSnap ?? cfg.value.noSnap,
     }))
     : [
       {
@@ -529,19 +530,25 @@ const refreshGroups = ({ immediate = false } = {}) => {
 };
 
 const refreshGroupsNow = () => {
-  if (cfg.value.noSnap) {
-    // No snap: all blocks isolated, no connections.
-    blocks.value.forEach(b => { b.isConnected = false; b.groupSum = null; delete b.visuallySeparated; });
-    adjacentGroups.value = [];
-    connections.value = [];
-    saveToStorage();
-    return;
-  }
+  // Per-grid noSnap: falls back to global cfg.value.noSnap if not set on the grid.
+  const isNoSnap = (gridId) =>
+    gridDefs.value.find(g => g.id === gridId)?.noSnap ?? cfg.value.noSnap;
 
-  // Build groups by adjacency.
+  // Isolate blocks in noSnap grids first.
+  blocks.value.forEach(b => {
+    if (isNoSnap(b.gridId)) {
+      b.isConnected = false;
+      b.groupSum = null;
+      delete b.visuallySeparated;
+    }
+  });
+
+  // Build groups only from blocks in snap-enabled grids.
   const groups = [];
   blocks.value.forEach((b1) => {
+    if (isNoSnap(b1.gridId)) return;
     blocks.value.forEach((b2) => {
+      if (isNoSnap(b2.gridId)) return;
       if (b1.id >= b2.id) return;
       if (b1.gridId !== b2.gridId) return;
       if (!areAdjacent(b1, b2)) return;
@@ -1532,7 +1539,7 @@ const handleKeyDown = (e) => {
   );
 
   if ((e.key === "x" || e.key === "X") && !inInput) {
-    if (cfg.value.noSnap) return;
+    if (gridDefs.value.every(g => g.noSnap)) return;
     e.preventDefault();
     toggleCuttingMode();
   }
@@ -1579,6 +1586,17 @@ onUnmounted(() => {
   document.removeEventListener("keydown", handleKeyDown);
   window.removeEventListener("resize", onResize);
 });
+
+// Expose connected groups so parent components can verify answers.
+// Returns [{ gridId, blockIds, count }] for every connected group.
+const getConnectedGroups = () =>
+  adjacentGroups.value.map(ids => ({
+    gridId:   blocks.value.find(b => b.id === ids[0])?.gridId ?? null,
+    blockIds: ids,
+    count:    ids.length,
+  }));
+
+defineExpose({ getConnectedGroups });
 </script>
 
 <template>
