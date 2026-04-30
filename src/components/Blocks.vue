@@ -252,6 +252,20 @@ const cuttingMode = ref(false);
 const connections = ref([]);
 const connectionsToCut = ref([]);
 
+// All block ids in the same group as the selected/dragged block.
+// Used to highlight the entire group at once.
+const selectedGroupIds = computed(() => {
+  if (!selectedBlockId.value) return new Set();
+  const group = adjacentGroups.value.find(g => g.includes(selectedBlockId.value));
+  return new Set(group ?? [selectedBlockId.value]);
+});
+
+const draggedGroupIds = computed(() => {
+  if (!draggedBlockId.value) return new Set();
+  const group = adjacentGroups.value.find(g => g.includes(draggedBlockId.value));
+  return new Set(group ?? [draggedBlockId.value]);
+});
+
 // ===== DRAG STATE =====
 // dragState    — mouse coordinates and anchor
 // groupContext — which blocks are moving and their original positions
@@ -530,11 +544,10 @@ const refreshGroups = ({ immediate = false } = {}) => {
 };
 
 const refreshGroupsNow = () => {
-  // Per-grid noSnap: falls back to global cfg.value.noSnap if not set on the grid.
   const isNoSnap = (gridId) =>
     gridDefs.value.find(g => g.id === gridId)?.noSnap ?? cfg.value.noSnap;
 
-  // Isolate blocks in noSnap grids first.
+  // Isolate blocks in noSnap grids.
   blocks.value.forEach(b => {
     if (isNoSnap(b.gridId)) {
       b.isConnected = false;
@@ -1214,13 +1227,17 @@ const handleMouseMove = (e) => {
 
   const hit = findGridAtPoint(e.clientX, e.clientY);
 
-  // Actualizar ghost: siempre sigue al mouse
+  // Update ghost: follows mouse, stores anchor grid pos for group tile offsets.
   if (cfg.value.inline && containerRef.value) {
     const cr = containerRef.value.getBoundingClientRect();
+    const anchor = groupContext.value.initialPositions.find(p => p.id === draggedBlockId.value);
     ghostPos.value = {
       x: e.clientX - cr.left,
       y: e.clientY - cr.top,
-      visible: !hit, // solo mostrar cuando está fuera de un grid
+      anchorGridX: anchor?.gridX ?? 0,
+      anchorGridY: anchor?.gridY ?? 0,
+      cellSize: getCellSize(draggedBlockGrid.value),
+      visible: !hit,
     };
   }
 
@@ -1587,16 +1604,85 @@ onUnmounted(() => {
   window.removeEventListener("resize", onResize);
 });
 
-// Expose connected groups so parent components can verify answers.
+// Expose connected groups so parent can verify answers.
 // Returns [{ gridId, blockIds, count }] for every connected group.
 const getConnectedGroups = () =>
   adjacentGroups.value.map(ids => ({
-    gridId:   blocks.value.find(b => b.id === ids[0])?.gridId ?? null,
+    gridId: blocks.value.find(b => b.id === ids[0])?.gridId ?? null,
     blockIds: ids,
-    count:    ids.length,
+    count: ids.length,
   }));
 
 defineExpose({ getConnectedGroups });
+
+// Build SVG path data for the outer perimeter of a connected group.
+// Returns an array of path strings, one per group in the given grid.
+const getGroupOutlines = (gridId) => {
+  const cs = getCellSize(gridId);
+  const groupsInGrid = adjacentGroups.value
+    .map(ids => ids.filter(id => blocks.value.find(b => b.id === id)?.gridId === gridId))
+    .filter(ids => ids.length > 0);
+
+  return groupsInGrid.map(ids => {
+    const cells = new Set(
+      ids.map(id => {
+        const b = blocks.value.find(b => b.id === id);
+        return b ? `${b.gridX},${b.gridY}` : null;
+      }).filter(Boolean)
+    );
+
+    // Collect exposed edges: for each cell, check all 4 sides.
+    const edges = [];
+    const dirs = [
+      { dx: 0, dy: -1, x1: 0, y1: 0, x2: 1, y2: 0 }, // top
+      { dx: 1, dy: 0, x1: 1, y1: 0, x2: 1, y2: 1 }, // right
+      { dx: 0, dy: 1, x1: 0, y1: 1, x2: 1, y2: 1 }, // bottom
+      { dx: -1, dy: 0, x1: 0, y1: 0, x2: 0, y2: 1 }, // left
+    ];
+
+    ids.forEach(id => {
+      const b = blocks.value.find(b => b.id === id);
+      if (!b) return;
+      dirs.forEach(({ dx, dy, x1, y1, x2, y2 }) => {
+        if (!cells.has(`${b.gridX + dx},${b.gridY + dy}`)) {
+          edges.push({
+            x1: (b.gridX + x1) * cs,
+            y1: (b.gridY + y1) * cs,
+            x2: (b.gridX + x2) * cs,
+            y2: (b.gridY + y2) * cs,
+          });
+        }
+      });
+    });
+
+    // Convert edge list to a continuous path by chaining segments.
+    if (!edges.length) return '';
+    const remaining = [...edges];
+    const toKey = (x, y) => `${x},${y}`;
+    let path = `M ${remaining[0].x1} ${remaining[0].y1} L ${remaining[0].x2} ${remaining[0].y2}`;
+    let curX = remaining[0].x2;
+    let curY = remaining[0].y2;
+    remaining.splice(0, 1);
+
+    while (remaining.length) {
+      const nextIdx = remaining.findIndex(
+        e => toKey(e.x1, e.y1) === toKey(curX, curY) ||
+          toKey(e.x2, e.y2) === toKey(curX, curY)
+      );
+      if (nextIdx === -1) break;
+      const next = remaining.splice(nextIdx, 1)[0];
+      if (toKey(next.x1, next.y1) === toKey(curX, curY)) {
+        path += ` L ${next.x2} ${next.y2}`;
+        curX = next.x2; curY = next.y2;
+      } else {
+        path += ` L ${next.x1} ${next.y1}`;
+        curX = next.x1; curY = next.y1;
+      }
+    }
+
+    return path + ' Z';
+  });
+};
 </script>
 
 <template>
@@ -1633,7 +1719,7 @@ defineExpose({ getConnectedGroups });
                   :style="{ width: getGridWidth(gridDef.id) + 'px', height: getGridHeight(gridDef.id) + 'px' }">
                   <div v-for="block in getGridBlocks(gridDef.id)" :key="block.id"
                     @mousedown="handleBlockMouseDown($event, block.id, gridDef.id)"
-                    :class="{ 'block-transparent': true, 'block-dragging': draggedBlockId === block.id, 'block-selected': selectedBlockId === block.id, 'block-connected': block.isConnected, 'no-hover': cuttingMode, 'visually-separated': block.visuallySeparated }"
+                    :class="{ 'block-transparent': true, 'block-dragging': draggedGroupIds.has(block.id), 'block-selected': selectedGroupIds.has(block.id) && !block.isConnected, 'block-connected': block.isConnected, 'no-hover': cuttingMode, 'visually-separated': block.visuallySeparated }"
                     :style="{ left: block.gridX * getCellSize(gridDef.id) + 'px', top: block.gridY * getCellSize(gridDef.id) + 'px', width: getCellSize(gridDef.id) + 'px', height: getCellSize(gridDef.id) + 'px', position: 'absolute', backgroundColor: 'transparent' }">
                     <template v-if="block.units?.length > 0">
                       <div v-for="(unit, i) in block.units" :key="i" class="unit-cube"
@@ -1644,6 +1730,13 @@ defineExpose({ getConnectedGroups });
                       :style="{ position: 'absolute', inset: 0, backgroundImage: getBorderStyle(block), pointerEvents: 'none' }">
                     </div>
                   </div>
+                  <!-- Group outlines — one SVG path per connected group -->
+                  <svg class="group-outline-svg" :width="getGridWidth(gridDef.id)" :height="getGridHeight(gridDef.id)"
+                    :style="{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', overflow: 'visible' }">
+                    <path v-for="(pathD, i) in getGroupOutlines(gridDef.id)" :key="i" :d="pathD" fill="none"
+                      stroke="rgba(99,102,241,0.85)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"
+                      class="group-outline-path" />
+                  </svg>
                 </div>
               </div>
               <div v-if="cfg.showToolbar" class="grid-toolbar" @mousedown.stop>
@@ -1681,7 +1774,7 @@ defineExpose({ getConnectedGroups });
                   :style="{ width: getGridWidth(gridDef.id) + 'px', height: getGridHeight(gridDef.id) + 'px' }">
                   <div v-for="block in getGridBlocks(gridDef.id)" :key="block.id"
                     @mousedown="handleBlockMouseDown($event, block.id, gridDef.id)"
-                    :class="{ 'block-transparent': true, 'block-dragging': draggedBlockId === block.id, 'block-selected': selectedBlockId === block.id, 'block-connected': block.isConnected, 'no-hover': cuttingMode, 'visually-separated': block.visuallySeparated }"
+                    :class="{ 'block-transparent': true, 'block-dragging': draggedGroupIds.has(block.id), 'block-selected': selectedGroupIds.has(block.id) && !block.isConnected, 'block-connected': block.isConnected, 'no-hover': cuttingMode, 'visually-separated': block.visuallySeparated }"
                     :style="{ left: block.gridX * getCellSize(gridDef.id) + 'px', top: block.gridY * getCellSize(gridDef.id) + 'px', width: getCellSize(gridDef.id) + 'px', height: getCellSize(gridDef.id) + 'px', position: 'absolute', backgroundColor: 'transparent' }">
                     <template v-if="block.units?.length > 0">
                       <div v-for="(unit, i) in block.units" :key="i" class="unit-cube"
@@ -1692,6 +1785,13 @@ defineExpose({ getConnectedGroups });
                       :style="{ position: 'absolute', inset: 0, backgroundImage: getBorderStyle(block), pointerEvents: 'none' }">
                     </div>
                   </div>
+                  <!-- Group outlines -->
+                  <svg class="group-outline-svg" :width="getGridWidth(gridDef.id)" :height="getGridHeight(gridDef.id)"
+                    :style="{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', overflow: 'visible' }">
+                    <path v-for="(pathD, i) in getGroupOutlines(gridDef.id)" :key="i" :d="pathD" fill="none"
+                      stroke="rgba(99,102,241,0.85)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"
+                      class="group-outline-path" />
+                  </svg>
                 </div>
               </div>
               <div v-if="cfg.showToolbar" class="grid-toolbar" @mousedown.stop>
@@ -1815,14 +1915,16 @@ defineExpose({ getConnectedGroups });
         </div>
       </template>
 
-      <!-- Ghost drag — visible cuando el bloque sale de todos los grids -->
-      <div v-if="ghostPos.visible && draggedBlockId !== null" class="drag-ghost" :style="{
-        left: ghostPos.x + 'px',
-        top: ghostPos.y + 'px',
-        width: getCellSize(draggedBlockGrid) + 'px',
-        height: getCellSize(draggedBlockGrid) + 'px',
-        backgroundColor: blocks.find(b => b.id === draggedBlockId)?.units?.[0]?.color ?? BLOCK_COLOR,
-      }"></div>
+      <!-- Group ghost — one tile per block in the dragged group -->
+      <template v-if="ghostPos.visible && draggedBlockId !== null && groupContext !== null">
+        <div v-for="pos in groupContext.initialPositions" :key="pos.id" class="drag-ghost" :style="{
+          left: (ghostPos.x + (pos.gridX - ghostPos.anchorGridX) * ghostPos.cellSize) + 'px',
+          top: (ghostPos.y + (pos.gridY - ghostPos.anchorGridY) * ghostPos.cellSize) + 'px',
+          width: ghostPos.cellSize + 'px',
+          height: ghostPos.cellSize + 'px',
+          backgroundColor: blocks.find(b => b.id === pos.id)?.units?.[0]?.color ?? BLOCK_COLOR,
+        }"></div>
+      </template>
     </div>
 
     <!-- ========== MODO OVERLAY (original) ========== -->
@@ -2241,6 +2343,13 @@ defineExpose({ getConnectedGroups });
   z-index: 50;
 }
 
+.block-transparent.block-connected:hover {
+  filter: none;
+  transform: none;
+  box-shadow: none;
+  z-index: auto;
+}
+
 .block-transparent.no-hover:hover {
   filter: none;
   transform: none;
@@ -2486,5 +2595,17 @@ defineExpose({ getConnectedGroups });
   z-index: 9999;
   transform: translate(-50%, -50%);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* ===== GROUP OUTLINES ===== */
+.group-outline-path {
+  animation: outline-dash 1.5s linear infinite;
+  stroke-dasharray: 6 4;
+}
+
+@keyframes outline-dash {
+  to {
+    stroke-dashoffset: -20;
+  }
 }
 </style>
