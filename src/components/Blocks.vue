@@ -872,12 +872,8 @@ const doLinesIntersect = (x1, y1, x2, y2, x3, y3, x4, y4) => {
 const getGridRelativePos = (e) => {
   const hit = findGridAtPoint(e.clientX, e.clientY);
   if (!hit) return null;
-  const gridEl = document.querySelector(
-    `.grid-center[data-grid-index='${hit.gridIndex}'] .blocks-layer-transparent`,
-  );
-  if (!gridEl) return null;
-  const rect = gridEl.getBoundingClientRect();
-  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  // hit.rect is already the blocks-layer rect (accurate cell origin).
+  return { x: e.clientX - hit.rect.left, y: e.clientY - hit.rect.top };
 };
 
 const handleSnapCutStart = (e) => {
@@ -980,12 +976,29 @@ const isGroupMoveLegal = (groupIds, dx, dy, targetGridId) => {
   const cols = getGridCols(targetGridId);
   const rows = getGridRows(targetGridId);
   const idSet = new Set(groupIds);
-  for (const id of groupIds) {
+
+  // Compute the new positions for all blocks in the group.
+  const newPositions = groupIds.map(id => {
     const b = blocks.value.find((s) => s.id === id);
-    if (!b) continue;
-    const nx = b.gridX + dx;
-    const ny = b.gridY + dy;
+    if (!b) return null;
+    return { id, nx: b.gridX + dx, ny: b.gridY + dy };
+  }).filter(Boolean);
+
+  // Check that every block fits within the target grid bounds.
+  for (const { nx, ny } of newPositions) {
     if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) return false;
+  }
+
+  // Check that the group's bounding box fits within the target grid.
+  // This prevents a wide/tall group from entering a grid too small to contain it.
+  const minX = Math.min(...newPositions.map(p => p.nx));
+  const maxX = Math.max(...newPositions.map(p => p.nx));
+  const minY = Math.min(...newPositions.map(p => p.ny));
+  const maxY = Math.max(...newPositions.map(p => p.ny));
+  if (maxX - minX + 1 > cols || maxY - minY + 1 > rows) return false;
+
+  // Check no collision with other blocks already in the target grid.
+  for (const { id, nx, ny } of newPositions) {
     const occupant = blocks.value.find((s) => {
       if (s.gridId !== targetGridId) return false;
       if (idSet.has(s.id)) return false;
@@ -993,6 +1006,7 @@ const isGroupMoveLegal = (groupIds, dx, dy, targetGridId) => {
     });
     if (occupant) return false;
   }
+
   return true;
 };
 
@@ -1201,17 +1215,26 @@ const handleBlockMouseDown = (e, blockId, gridId) => {
 };
 
 const findGridAtPoint = (x, y) => {
-  const gridEls = Array.from(document.querySelectorAll(".grid-center"));
+  // Scope to THIS component's container so grids from other Blocks instances
+  // on the same page are never accidentally matched.
+  const root = containerRef.value ?? document;
+  const gridEls = Array.from(root.querySelectorAll(".grid-center"));
   for (const el of gridEls) {
-    const rect = el.getBoundingClientRect();
+    const outerRect = el.getBoundingClientRect();
     if (
-      x >= rect.left &&
-      x <= rect.right &&
-      y >= rect.top &&
-      y <= rect.bottom
+      x >= outerRect.left &&
+      x <= outerRect.right &&
+      y >= outerRect.top &&
+      y <= outerRect.bottom
     ) {
       const index = Number(el.dataset.gridIndex);
-      return { gridIndex: Number.isNaN(index) ? 0 : index, rect };
+      const gridIndex = Number.isNaN(index) ? 0 : index;
+      // Use the blocks-layer rect for pixel→cell mapping.
+      // .grid-center includes its own 2px dashed border + any padding,
+      // so measuring from its edge would skew rawGridX/Y.
+      const blocksLayer = el.querySelector(".blocks-layer-transparent");
+      const rect = blocksLayer ? blocksLayer.getBoundingClientRect() : outerRect;
+      return { gridIndex, rect };
     }
   }
   return null;
@@ -1232,12 +1255,12 @@ const handleMouseMove = (e) => {
     const cr = containerRef.value.getBoundingClientRect();
     const anchor = groupContext.value.initialPositions.find(p => p.id === draggedBlockId.value);
     ghostPos.value = {
-      x: e.clientX - cr.left,
-      y: e.clientY - cr.top,
+      x:           e.clientX - cr.left,
+      y:           e.clientY - cr.top,
       anchorGridX: anchor?.gridX ?? 0,
       anchorGridY: anchor?.gridY ?? 0,
-      cellSize: getCellSize(draggedBlockGrid.value),
-      visible: !hit,
+      cellSize:    getCellSize(draggedBlockGrid.value),
+      visible:     !hit,
     };
   }
 
@@ -1264,6 +1287,24 @@ const handleMouseMove = (e) => {
   );
 
   dragState.value.currentGridId = gridIndex;
+
+  // If entering a different grid, first check the group's bounding box fits.
+  const sourceGridId = groupContext.value.initialPositions[0]?.gridId ?? gridIndex;
+  if (gridIndex !== sourceGridId) {
+    const targetCols = getGridCols(gridIndex);
+    const targetRows = getGridRows(gridIndex);
+    const xs = groupContext.value.initialPositions.map(p => p.gridX);
+    const ys = groupContext.value.initialPositions.map(p => p.gridY);
+    const groupW = Math.max(...xs) - Math.min(...xs) + 1;
+    const groupH = Math.max(...ys) - Math.min(...ys) + 1;
+    if (groupW > targetCols || groupH > targetRows) {
+      // Group doesn't fit — keep blocks in their last valid position.
+      if (dragState.value.lastValidDx !== undefined) {
+        moveGroup(groupContext.value.ids, dragState.value.lastValidDx, dragState.value.lastValidDy, sourceGridId);
+      }
+      return;
+    }
+  }
 
   if (isGroupMoveLegal(groupContext.value.ids, targetDx, targetDy, gridIndex)) {
     moveGroup(groupContext.value.ids, targetDx, targetDy, gridIndex);
@@ -1608,9 +1649,9 @@ onUnmounted(() => {
 // Returns [{ gridId, blockIds, count }] for every connected group.
 const getConnectedGroups = () =>
   adjacentGroups.value.map(ids => ({
-    gridId: blocks.value.find(b => b.id === ids[0])?.gridId ?? null,
+    gridId:   blocks.value.find(b => b.id === ids[0])?.gridId ?? null,
     blockIds: ids,
-    count: ids.length,
+    count:    ids.length,
   }));
 
 defineExpose({ getConnectedGroups });
@@ -1635,8 +1676,8 @@ const getGroupOutlines = (gridId) => {
     const edges = [];
     const dirs = [
       { dx: 0, dy: -1, x1: 0, y1: 0, x2: 1, y2: 0 }, // top
-      { dx: 1, dy: 0, x1: 1, y1: 0, x2: 1, y2: 1 }, // right
-      { dx: 0, dy: 1, x1: 0, y1: 1, x2: 1, y2: 1 }, // bottom
+      { dx: 1, dy:  0, x1: 1, y1: 0, x2: 1, y2: 1 }, // right
+      { dx: 0, dy:  1, x1: 0, y1: 1, x2: 1, y2: 1 }, // bottom
       { dx: -1, dy: 0, x1: 0, y1: 0, x2: 0, y2: 1 }, // left
     ];
 
@@ -1667,7 +1708,7 @@ const getGroupOutlines = (gridId) => {
     while (remaining.length) {
       const nextIdx = remaining.findIndex(
         e => toKey(e.x1, e.y1) === toKey(curX, curY) ||
-          toKey(e.x2, e.y2) === toKey(curX, curY)
+             toKey(e.x2, e.y2) === toKey(curX, curY)
       );
       if (nextIdx === -1) break;
       const next = remaining.splice(nextIdx, 1)[0];
@@ -1731,11 +1772,23 @@ const getGroupOutlines = (gridId) => {
                     </div>
                   </div>
                   <!-- Group outlines — one SVG path per connected group -->
-                  <svg class="group-outline-svg" :width="getGridWidth(gridDef.id)" :height="getGridHeight(gridDef.id)"
-                    :style="{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', overflow: 'visible' }">
-                    <path v-for="(pathD, i) in getGroupOutlines(gridDef.id)" :key="i" :d="pathD" fill="none"
-                      stroke="rgba(99,102,241,0.85)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"
-                      class="group-outline-path" />
+                  <svg
+                    class="group-outline-svg"
+                    :width="getGridWidth(gridDef.id)"
+                    :height="getGridHeight(gridDef.id)"
+                    :style="{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', overflow: 'visible' }"
+                  >
+                    <path
+                      v-for="(pathD, i) in getGroupOutlines(gridDef.id)"
+                      :key="i"
+                      :d="pathD"
+                      fill="none"
+                      stroke="rgba(99,102,241,0.85)"
+                      stroke-width="2.5"
+                      stroke-linejoin="round"
+                      stroke-linecap="round"
+                      class="group-outline-path"
+                    />
                   </svg>
                 </div>
               </div>
@@ -1786,11 +1839,23 @@ const getGroupOutlines = (gridId) => {
                     </div>
                   </div>
                   <!-- Group outlines -->
-                  <svg class="group-outline-svg" :width="getGridWidth(gridDef.id)" :height="getGridHeight(gridDef.id)"
-                    :style="{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', overflow: 'visible' }">
-                    <path v-for="(pathD, i) in getGroupOutlines(gridDef.id)" :key="i" :d="pathD" fill="none"
-                      stroke="rgba(99,102,241,0.85)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"
-                      class="group-outline-path" />
+                  <svg
+                    class="group-outline-svg"
+                    :width="getGridWidth(gridDef.id)"
+                    :height="getGridHeight(gridDef.id)"
+                    :style="{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', overflow: 'visible' }"
+                  >
+                    <path
+                      v-for="(pathD, i) in getGroupOutlines(gridDef.id)"
+                      :key="i"
+                      :d="pathD"
+                      fill="none"
+                      stroke="rgba(99,102,241,0.85)"
+                      stroke-width="2.5"
+                      stroke-linejoin="round"
+                      stroke-linecap="round"
+                      class="group-outline-path"
+                    />
                   </svg>
                 </div>
               </div>
@@ -1917,13 +1982,18 @@ const getGroupOutlines = (gridId) => {
 
       <!-- Group ghost — one tile per block in the dragged group -->
       <template v-if="ghostPos.visible && draggedBlockId !== null && groupContext !== null">
-        <div v-for="pos in groupContext.initialPositions" :key="pos.id" class="drag-ghost" :style="{
-          left: (ghostPos.x + (pos.gridX - ghostPos.anchorGridX) * ghostPos.cellSize) + 'px',
-          top: (ghostPos.y + (pos.gridY - ghostPos.anchorGridY) * ghostPos.cellSize) + 'px',
-          width: ghostPos.cellSize + 'px',
-          height: ghostPos.cellSize + 'px',
-          backgroundColor: blocks.find(b => b.id === pos.id)?.units?.[0]?.color ?? BLOCK_COLOR,
-        }"></div>
+        <div
+          v-for="pos in groupContext.initialPositions"
+          :key="pos.id"
+          class="drag-ghost"
+          :style="{
+            left:            (ghostPos.x + (pos.gridX - ghostPos.anchorGridX) * ghostPos.cellSize) + 'px',
+            top:             (ghostPos.y + (pos.gridY - ghostPos.anchorGridY) * ghostPos.cellSize) + 'px',
+            width:           ghostPos.cellSize + 'px',
+            height:          ghostPos.cellSize + 'px',
+            backgroundColor: blocks.find(b => b.id === pos.id)?.units?.[0]?.color ?? BLOCK_COLOR,
+          }"
+        ></div>
       </template>
     </div>
 
@@ -2604,8 +2674,6 @@ const getGroupOutlines = (gridId) => {
 }
 
 @keyframes outline-dash {
-  to {
-    stroke-dashoffset: -20;
-  }
+  to { stroke-dashoffset: -20; }
 }
 </style>
