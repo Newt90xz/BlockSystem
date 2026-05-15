@@ -73,7 +73,7 @@
                 @click="pinnedPreview = pinnedPreview === ex ? null : ex"
               >
                 <span class="draft-nums">{{ ex.grids.map(g => g.label || g.value).join(' + ') }}</span>
-                <span class="draft-dropzones">→ {{ (ex.answers ?? []).map(a => a.gridLabel + ':' + a.needs).join(', ') || 'banca' }}</span>
+                <span class="draft-dropzones">→ {{ (ex.answers ?? []).map(a => prettyAnswer(ex, a)).join(', ') || 'banca' }}</span>
                 <button class="btn-icon btn-delete" @click.stop="draft.splice(i, 1); if(pinnedPreview === ex) pinnedPreview = null">✕</button>
               </div>
             </div>
@@ -210,39 +210,21 @@ const showLabels = ref(true);
 
 // ── DEMO EXERCISES ──
 const demoExercises = ref([
-  {
-    text: "María tiene 2 manzanas y Juan tiene 3. ¿Cuántas tienen en total?",
-    grids:   [{ value: 2, label: '2' }, { value: 3, label: '3' }],
-    bancas:  [{ label: 'Banca de respuesta' }],
-    answers: [{ bancaIdx: 0, gridLabel: 'any', needs: 5 }],
-  },
-  {
-    text: "En el patio hay 4 perros y llegan 2 más. ¿Cuántos perros hay ahora?",
-    grids:   [{ value: 4, label: '4' }, { value: 2, label: '2' }],
-    bancas:  [{ label: 'Banca de respuesta' }],
-    answers: [{ bancaIdx: 0, gridLabel: 'any', needs: 6 }],
-  },
-  {
-    text: "Ana juntó 3 piedras en el parque y 4 en la playa. ¿Cuántas piedras tiene?",
-    grids:   [{ value: 3, label: '3' }, { value: 4, label: '4' }],
-    bancas:  [{ label: 'Banca de respuesta' }],
-    answers: [{ bancaIdx: 0, gridLabel: 'any', needs: 7 }],
-  },
   // Origin-based exercises
   {
     text: "Pedro tiene 3 manzanas y Alicia tiene 2. Pedro le da 2 a Alicia. ¿Cuántas tiene Alicia al final?",
-    grids:   [{ value: 3, label: 'Pedro' }, { value: 2, label: 'Alicia' }],
-    bancas:  [{ label: 'Alicia al final' }],
+    grids:   [{ value: 3, label: '3' }, { value: 2, label: '2' }],
+    bancas:  [{ label: 'Alicia' }],
     answers: [
-      { bancaIdx: 0, gridLabel: 'Pedro',  needs: 2 },
-      { bancaIdx: 0, gridLabel: 'Alicia', needs: 2 },
+      { bancaIdx: 0, gridIdx: 0, gridLabel: '3',  needs: 2 },
+      { bancaIdx: 0, gridIdx: 1, gridLabel: '2', needs: 2 },
     ],
   },
   {
     text: "Pedro tiene 5 naranjas. Le regala 3 a Juan. ¿Cuántas le quedan a Pedro?",
-    grids:   [{ value: 5, label: 'Pedro' }],
-    bancas:  [{ label: 'Pedro al final' }],
-    answers: [{ bancaIdx: 0, gridLabel: 'Pedro', needs: 2 }],
+    grids:   [{ value: 5, label: '5' }],
+    bancas:  [{ label: 'Pedro' }],
+    answers: [{ bancaIdx: 0, gridIdx: 0, gridLabel: '5', needs: 2 }],
   },
 ]);
 
@@ -360,9 +342,17 @@ const previewExercise = computed(() => {
       label: g.label || String(g.value),
     }));
     // Build answers from raw validGrids (which have needs field)
-    const answers = rawGrids
-      .filter(g => parseInt(g.needs) > 0)
-      .map(g => ({ bancaIdx: 0, gridLabel: g.label || String(g.value), needs: parseInt(g.needs) }));
+    const answers = rawGrids.reduce((arr, g, gridIdx) => {
+      if (parseInt(g.needs) > 0) {
+        arr.push({
+          bancaIdx: 0,
+          gridIdx,
+          gridLabel: g.label || String(g.value), // kept for display/backward compat
+          needs: parseInt(g.needs),
+        });
+      }
+      return arr;
+    }, []);
     return {
       text:   form.value.text,
       grids,
@@ -384,9 +374,17 @@ const addToDraft = () => {
     value: parseInt(g.value),
     label: g.label || String(g.value),
   }));
-  const answers = validGrids.value
-    .filter(g => parseInt(g.needs) > 0)
-    .map(g => ({ bancaIdx: 0, gridLabel: g.label || String(g.value), needs: parseInt(g.needs) }));
+  const answers = validGrids.value.reduce((arr, g, gridIdx) => {
+    if (parseInt(g.needs) > 0) {
+      arr.push({
+        bancaIdx: 0,
+        gridIdx,
+        gridLabel: g.label || String(g.value), // kept for display/backward compat
+        needs: parseInt(g.needs),
+      });
+    }
+    return arr;
+  }, []);
   const ex = {
     text:   form.value.text,
     grids,
@@ -396,6 +394,15 @@ const addToDraft = () => {
   draft.value.push(ex);
   lastAdded.value = ex;
   form.value = defaultForm();
+};
+
+// Helper for draft list rendering (supports new + old answer shapes)
+const prettyAnswer = (ex, a) => {
+  if (a?.gridIdx != null) {
+    const label = ex?.grids?.[a.gridIdx]?.label ?? `Grid ${a.gridIdx + 1}`;
+    return `${label}:${a.needs}`;
+  }
+  return `${a?.gridLabel ?? 'Grid'}:${a?.needs ?? ''}`;
 };
 
 const loadDraft = () => {

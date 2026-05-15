@@ -5,7 +5,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 // Accepts either:
 //   :exercise="{ text, grids, banca }"             ← high-level (recommended)
 //   :config="{ grids, ... }"                       ← low-level / raw (still supported)
-// When exercise is provided it takes precedence and buildConfigFromExercise()
+// When exercise is provided it takes precedence — cfg builds from it directly.
 // converts it to the internal config format.
 const props = defineProps({
   exercise: { type: Object, default: null },
@@ -31,87 +31,101 @@ const _shuffleArray = (arr) => {
 };
 
 
-// Converts a high-level exercise object to the internal config format.
-// Structure:
-//   grids:   [{ value, label }]
-//   bancas:  [{ label, shuffle? }]
-//   answers: [{ bancaIdx, gridLabel, needs }]
-const buildConfigFromExercise = (ex) => {
-  const grids = ex.grids ?? [];
-  const bancas = ex.bancas ?? [];
-  const answers = ex.answers ?? [];
-  const totalBlocks = grids.reduce((s, g) => s + (g.value ?? 0), 0);
 
-  const bancaRows = 3;
-
-  // Source grids
-  const sourceGrids = grids.map(g => ({
-    label: g.label || String(g.value),
-    ..._gridShape(g.value),
-    initialBlocks: [g.value],
-    isAnswer: false,
-    showLabel: false,
-    showCount: false,
-    noSnap: true,
-  }));
-
-  // Banca grids — one per bancas entry
-  // cols must be >= total needs so blocks can be placed in a single connected row.
-  // We add 1 extra column so there's always room to maneuver.
-  const bancaGrids = bancas.map((b, bi) => {
-    const relevant = answers.filter(a => a.bancaIdx === bi);
-    const totalNeeds = relevant.some(a => a.gridLabel === 'any')
-      ? totalBlocks
-      : relevant.reduce((s, a) => s + a.needs, 0);
-    const cols = Math.max(totalNeeds + 1, 3);
-    return {
-      label: b.label || 'Banca de respuesta',
-      cols,
-      rows: bancaRows,
-      initialBlocks: b.shuffle ? _shuffleArray(Array(totalBlocks).fill(1)) : [],
-      isAnswer: true,
-      showLabel: true,
-      showCount: false,
-      noSnap: false,
-    };
-  });
-
-  return {
-    inline: true,
+// ===== CONFIG =====
+// If :exercise is provided, build config from it directly.
+// Falls back to :config prop for raw/legacy use.
+const cfg = computed(() => {
+  const defaults = {
+    maxBloques: Infinity,
+    gridColumns: 8,
+    gridRows: 7,
+    initialBlocks: [],
+    showToolbar: true,
     inlineColumns: 2,
-    showToolbar: false,
+    storageKey: null,
+    noSnap: false,
     showGridLabels: true,
-    maxBloques: totalBlocks * 2 + 4,
-    grids: [...sourceGrids, ...bancaGrids],
-    // Validation spec — maps bancaIdx → list of { gridLabel, needs }
-    _bancaAnswers: bancas.map((b, bi) => ({
-      gridIdx: grids.length + bi,
-      label: b.label || 'Banca de respuesta',
-      answer: answers.filter(a => a.bancaIdx === bi),
-    })),
   };
-};
 
-// Resolved config: exercise prop takes precedence over config prop.
-const resolvedConfig = computed(() =>
-  props.exercise ? buildConfigFromExercise(props.exercise) : props.config
-);
+  if (props.exercise) {
+    const ex = props.exercise;
+    const grids = ex.grids ?? [];
+    const bancas = ex.bancas ?? [];
+    const answers = ex.answers ?? [];
+    const totalBlocks = grids.reduce((s, g) => s + (g.value ?? 0), 0);
+    const bancaRows = 3;
 
-// Merge resolved config with defaults.
-const cfg = computed(() => ({
-  maxBloques: Infinity,
-  gridColumns: 8,
-  gridRows: 7,
-  initialBlocks: [],
-  showToolbar: true,
-  inlineColumns: 2,
-  storageKey: null,  // null = no persistence; set via :config for legacy use
-  noSnap: false,
-  showGridLabels: true,
-  ...resolvedConfig.value,
-  grids: resolvedConfig.value.grids ?? [],
-  _bancaAnswers: resolvedConfig.value._bancaAnswers ?? [],
-}));
+    const sourceGrids = grids.map(g => ({
+      label: g.label || String(g.value),
+      ..._gridShape(g.value),
+      initialBlocks: [g.value],
+      isAnswer: false,
+      showLabel: false,
+      showCount: false,
+      noSnap: true,
+    }));
+
+    // Normalize answers to prefer gridIdx over gridLabel (more robust).
+    // Keeps backward compatibility with existing exercises that only have gridLabel.
+    const labelToIdx = {};
+    sourceGrids.forEach((g, i) => { labelToIdx[g.label] = i; });
+    const normalizedAnswers = answers.map(a => {
+      // Support "any" in either field
+      if (a?.gridIdx === 'any' || a?.gridLabel === 'any') {
+        return { ...a, gridIdx: 'any', gridLabel: 'any' };
+      }
+      // Prefer numeric gridIdx if present
+      if (typeof a?.gridIdx === 'number') return a;
+      // Fallback: resolve gridLabel -> gridIdx if possible
+      if (typeof a?.gridLabel === 'string' && a.gridLabel in labelToIdx) {
+        return { ...a, gridIdx: labelToIdx[a.gridLabel] };
+      }
+      return a;
+    });
+
+    const bancaGrids = bancas.map((b, bi) => {
+      const relevant = normalizedAnswers.filter(a => a.bancaIdx === bi);
+      const totalNeeds = relevant.some(a => a.gridIdx === 'any' || a.gridLabel === 'any')
+        ? totalBlocks
+        : relevant.reduce((s, a) => s + a.needs, 0);
+      const cols = Math.max(totalNeeds + 1, 3);
+      return {
+        label: b.label || 'Banca de respuesta',
+        cols,
+        rows: bancaRows,
+        initialBlocks: b.shuffle ? _shuffleArray(Array(totalBlocks).fill(1)) : [],
+        isAnswer: true,
+        showLabel: true,
+        showCount: false,
+        noSnap: false,
+      };
+    });
+
+    return {
+      ...defaults,
+      maxBloques: totalBlocks * 2 + 4,
+      inlineColumns: 2,
+      showToolbar: false,
+      showGridLabels: true,
+      grids: [...sourceGrids, ...bancaGrids],
+      _bancaAnswers: bancas.map((b, bi) => ({
+        gridIdx: grids.length + bi,
+        label: b.label || 'Banca de respuesta',
+        answer: normalizedAnswers.filter(a => a.bancaIdx === bi),
+      })),
+    };
+  }
+
+  // Raw config fallback
+  return {
+    ...defaults,
+    ...props.config,
+    grids: props.config.grids ?? [],
+    _bancaAnswers: props.config._bancaAnswers ?? [],
+  };
+});
+
 
 // ===== GRID DEFINITIONS =====
 // Build grid definitions from config.grids.
@@ -1646,16 +1660,19 @@ const handleConfirm = () => {
     // Get all blocks currently in this banca grid
     const bancaBlocks = blocks.value.filter(b => b.gridId === gridIdx);
 
-    // Group by originGridId → count
-    const originCounts = {};
+    // Group by originGridId → count (robust; independent of labels)
+    const originCountsByIdx = {};
+    // Backward-compat: also keep origin label counts (for legacy answers)
+    const originCountsByLabel = {};
     bancaBlocks.forEach(b => {
       const originDef = gridDefs.value.find(g => g.id === b.originGridId);
       const originLabel = originDef?.label ?? String(b.originGridId);
-      originCounts[originLabel] = (originCounts[originLabel] ?? 0) + 1;
+      originCountsByIdx[b.originGridId] = (originCountsByIdx[b.originGridId] ?? 0) + 1;
+      originCountsByLabel[originLabel] = (originCountsByLabel[originLabel] ?? 0) + 1;
     });
 
     // Check 'any' case first
-    const anyNeeds = answer.find(a => a.gridLabel === 'any');
+    const anyNeeds = answer.find(a => a.gridIdx === 'any' || a.gridLabel === 'any');
     if (anyNeeds) {
       return bancaBlocks.length === anyNeeds.needs;
     }
@@ -1664,7 +1681,14 @@ const handleConfirm = () => {
     const totalNeeded = answer.reduce((s, a) => s + a.needs, 0);
     if (bancaBlocks.length !== totalNeeded) return false;
 
-    return answer.every(a => (originCounts[a.gridLabel] ?? 0) === a.needs);
+    return answer.every(a => {
+      if (typeof a?.gridIdx === 'number')
+        return (originCountsByIdx[a.gridIdx] ?? 0) === a.needs;
+      // Legacy fallback (gridLabel-based)
+      if (typeof a?.gridLabel === 'string')
+        return (originCountsByLabel[a.gridLabel] ?? 0) === a.needs;
+      return false;
+    });
   });
 
   confirmResult.value = allCorrect ? 'correct' : 'incorrect';
