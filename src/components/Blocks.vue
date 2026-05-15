@@ -1,51 +1,119 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 
 // ===== PROPS =====
-// Single prop: config object.
-// config = {
-//   grids: [{ label, cols, rows, position, initialBlocks, isAnswer, showLabel, showCount }],
-//   storageKey, inline, inlineColumns, noSnap, showGridLabels,
-//   maxBloques, maxPorGrupo, showToolbar,
-//   gridColumns, gridRows, initialBlocks  (fallback defaults for grids that omit cols/rows)
-// }
-// position values: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' |
-//                  'center' | 'left' | 'right' | 'top' | 'bottom'
+// Accepts either:
+//   :exercise="{ text, grids, banca }"             ← high-level (recommended)
+//   :config="{ grids, ... }"                       ← low-level / raw (still supported)
+// When exercise is provided it takes precedence and buildConfigFromExercise()
+// converts it to the internal config format.
 const props = defineProps({
+  exercise: { type: Object, default: null },
   config: { type: Object, default: () => ({}) },
 });
 
-// Merge incoming config with defaults.
-// config.grids holds the grid definitions — everything else is a global option.
+const emit = defineEmits(['complete']);
+
+// ===== EXERCISE → CONFIG HELPERS =====
+// These live here so Blocks.vue is self-contained when used via :exercise.
+
+const _gridShape = (n) => n % 2 === 0
+  ? { cols: 2, rows: n / 2 }
+  : { cols: n, rows: 1 };
+
+const _shuffleArray = (arr) => {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+
+
+// Converts a high-level exercise object to the internal config format.
+// Structure:
+//   grids:   [{ value, label }]
+//   bancas:  [{ label, shuffle? }]
+//   answers: [{ bancaIdx, gridLabel, needs }]
+const buildConfigFromExercise = (ex) => {
+  const grids = ex.grids ?? [];
+  const bancas = ex.bancas ?? [];
+  const answers = ex.answers ?? [];
+  const totalBlocks = grids.reduce((s, g) => s + (g.value ?? 0), 0);
+
+  const bancaRows = 3;
+
+  // Source grids
+  const sourceGrids = grids.map(g => ({
+    label: g.label || String(g.value),
+    ..._gridShape(g.value),
+    initialBlocks: [g.value],
+    isAnswer: false,
+    showLabel: false,
+    showCount: false,
+    noSnap: true,
+  }));
+
+  // Banca grids — one per bancas entry
+  // cols must be >= total needs so blocks can be placed in a single connected row.
+  // We add 1 extra column so there's always room to maneuver.
+  const bancaGrids = bancas.map((b, bi) => {
+    const relevant = answers.filter(a => a.bancaIdx === bi);
+    const totalNeeds = relevant.some(a => a.gridLabel === 'any')
+      ? totalBlocks
+      : relevant.reduce((s, a) => s + a.needs, 0);
+    const cols = Math.max(totalNeeds + 1, 3);
+    return {
+      label: b.label || 'Banca de respuesta',
+      cols,
+      rows: bancaRows,
+      initialBlocks: b.shuffle ? _shuffleArray(Array(totalBlocks).fill(1)) : [],
+      isAnswer: true,
+      showLabel: true,
+      showCount: false,
+      noSnap: false,
+    };
+  });
+
+  return {
+    inline: true,
+    inlineColumns: 2,
+    showToolbar: false,
+    showGridLabels: true,
+    maxBloques: totalBlocks * 2 + 4,
+    grids: [...sourceGrids, ...bancaGrids],
+    // Validation spec — maps bancaIdx → list of { gridLabel, needs }
+    _bancaAnswers: bancas.map((b, bi) => ({
+      gridIdx: grids.length + bi,
+      label: b.label || 'Banca de respuesta',
+      answer: answers.filter(a => a.bancaIdx === bi),
+    })),
+  };
+};
+
+// Resolved config: exercise prop takes precedence over config prop.
+const resolvedConfig = computed(() =>
+  props.exercise ? buildConfigFromExercise(props.exercise) : props.config
+);
+
+// Merge resolved config with defaults.
 const cfg = computed(() => ({
   maxBloques: Infinity,
-  maxPorGrupo: Infinity,
   gridColumns: 8,
   gridRows: 7,
   initialBlocks: [],
   showToolbar: true,
-  inline: false,
-  inlineColumns: 0,
-  storageKey: 'grid_blocks_data',
+  inlineColumns: 2,
+  storageKey: null,  // null = no persistence; set via :config for legacy use
   noSnap: false,
   showGridLabels: true,
-  ...props.config,
-  grids: props.config.grids ?? [],
+  ...resolvedConfig.value,
+  grids: resolvedConfig.value.grids ?? [],
+  _bancaAnswers: resolvedConfig.value._bancaAnswers ?? [],
 }));
 
 // ===== GRID DEFINITIONS =====
-const POSITIONS = [
-  "top-left",
-  "top-right",
-  "bottom-left",
-  "bottom-right",
-  "center",
-  "left",
-  "right",
-  "top",
-  "bottom",
-];
-
 // Build grid definitions from config.grids.
 // If none are provided, fall back to a single default grid.
 const buildGridDefs = (rawGrids) =>
@@ -55,7 +123,6 @@ const buildGridDefs = (rawGrids) =>
       label: g.label ?? `Grid ${i + 1}`,
       cols: g.cols ?? cfg.value.gridColumns,
       rows: g.rows ?? cfg.value.gridRows,
-      position: g.position ?? POSITIONS[i] ?? "top-left",
       initialBlocks: g.initialBlocks ?? [],
       isAnswer: g.isAnswer ?? false,
       showLabel: g.showLabel ?? true,
@@ -68,16 +135,29 @@ const buildGridDefs = (rawGrids) =>
         label: "Grid 1",
         cols: cfg.value.gridColumns,
         rows: cfg.value.gridRows,
-        position: "top-left",
         initialBlocks: cfg.value.initialBlocks,
       },
     ];
 
+// gridDefs must stay as ref (not computed) because blocks reference gridDefs by id.
+// Watch the exercise prop deeply — any change (grids, bancas, answers) triggers a full rebuild.
 const gridDefs = ref(buildGridDefs(cfg.value.grids));
 
+watch(
+  () => props.exercise,
+  () => {
+    const newGrids = cfg.value.grids;
+    gridDefs.value = buildGridDefs(newGrids);
+    blocks.value = [];
+    if (gridDefs.value.some(g => g.initialBlocks?.length > 0))
+      createInitialBlocks();
+  },
+  { deep: true }
+);
 
-// True after first mount — distinguishes page reload (false) from prop-driven remount (true).
-let _hasBeenMounted = false;
+
+// True after first mount — instance-level so multiple Blocks on same page don't share state.
+const _hasBeenMounted = ref(false);
 
 // ===== COLORS =====
 const BLOCK_COLOR = "#EF4444";
@@ -218,16 +298,17 @@ const CELL_SIZE = computed(() => getCellSize(gridDefs.value[0]?.id ?? 0));
 const onResize = () => {
   viewportW.value = window.innerWidth;
   viewportH.value = window.innerHeight;
-  if (cfg.value.inline) updateContainerSize();
+  updateContainerSize();
   borderStyleCache.clear();
 };
 
 // ===== BLOCK FACTORY =====
 // All blocks are 1×1 units.
-const createBlock = (gridX, gridY, id, gridId = 0) => ({
+const createBlock = (gridX, gridY, id, gridId = 0, originGridId = gridId) => ({
   id,
   type: "uno",
   gridId,
+  originGridId,  // never changes — tracks which grid the block was born in
   gridX,
   gridY,
   value: 1,
@@ -239,7 +320,6 @@ const createBlock = (gridX, gridY, id, gridId = 0) => ({
 });
 
 // ===== STATE =====
-const showOverlay = ref(false);
 const blocks = ref([]);
 const selectedBlockId = ref(null);
 const draggedBlockId = ref(null);
@@ -251,6 +331,7 @@ const adjacentGroups = ref([]);
 const cuttingMode = ref(false);
 const connections = ref([]);
 const connectionsToCut = ref([]);
+
 
 // All block ids in the same group as the selected/dragged block.
 // Used to highlight the entire group at once.
@@ -275,50 +356,6 @@ const groupContext = ref(null);
 // Grid positions come from gridDef.position — grids are not draggable.
 
 // Calcula el estilo CSS fixed para cada posición
-const getGridPositionStyle = (gridId) => {
-  const def = gridDefs.value.find((g) => g.id === gridId);
-  const pos = def?.position ?? "top-left";
-  const M = "16px";
-  const gw = getGridWidth(gridId);
-  const gh = getGridHeight(gridId);
-  const styles = {
-    "top-left": { top: M, left: M, bottom: "auto", right: "auto" },
-    "top-right": { top: M, right: M, bottom: "auto", left: "auto" },
-    "bottom-left": { bottom: M, left: M, top: "auto", right: "auto" },
-    "bottom-right": { bottom: M, right: M, top: "auto", left: "auto" },
-    center: {
-      top: `calc(50vh - ${gh / 2}px)`,
-      left: `calc(50vw - ${gw / 2}px)`,
-      bottom: "auto",
-      right: "auto",
-    },
-    left: {
-      top: `calc(50vh - ${gh / 2}px)`,
-      left: M,
-      bottom: "auto",
-      right: "auto",
-    },
-    right: {
-      top: `calc(50vh - ${gh / 2}px)`,
-      right: M,
-      bottom: "auto",
-      left: "auto",
-    },
-    top: {
-      top: M,
-      left: `calc(50vw - ${gw / 2}px)`,
-      bottom: "auto",
-      right: "auto",
-    },
-    bottom: {
-      bottom: M,
-      left: `calc(50vw - ${gw / 2}px)`,
-      top: "auto",
-      right: "auto",
-    },
-  };
-  return styles[pos] ?? styles["top-left"];
-};
 
 // ===== TOAST NOTIFICATIONS =====
 const toastMessage = ref("");
@@ -376,6 +413,7 @@ let nextId = 1;
 
 // ===== STORAGE =====
 const saveToStorage = () => {
+  if (!cfg.value.storageKey) return;
   try {
     localStorage.setItem(cfg.value.storageKey, JSON.stringify(blocks.value));
   } catch (e) {
@@ -659,7 +697,8 @@ const getConnectionsBetween = (id1, id2) => {
   const b2 = blocks.value.find((b) => b.id === id2);
   if (!b1 || !b2 || b1.gridId !== b2.gridId) return [];
 
-  const cs = CELL_SIZE.value;
+  // Use the cell size of the specific grid these blocks belong to
+  const cs = getCellSize(b1.gridId);
   const list = [];
 
   // Conexión vertical (bloques lado a lado → línea vertical entre ellos)
@@ -872,7 +911,7 @@ const doLinesIntersect = (x1, y1, x2, y2, x3, y3, x4, y4) => {
 const getGridRelativePos = (e) => {
   const hit = findGridAtPoint(e.clientX, e.clientY);
   if (!hit) return null;
-  // hit.rect is already the blocks-layer rect (accurate cell origin).
+  // hit.rect is already the blocks-layer rect from findGridAtPoint
   return { x: e.clientX - hit.rect.left, y: e.clientY - hit.rect.top };
 };
 
@@ -1215,7 +1254,7 @@ const handleBlockMouseDown = (e, blockId, gridId) => {
 };
 
 const findGridAtPoint = (x, y) => {
-  // Scope to THIS component's container so grids from other Blocks instances
+  // Scope to this component's container so grids from other Blocks instances
   // on the same page are never accidentally matched.
   const root = containerRef.value ?? document;
   const gridEls = Array.from(root.querySelectorAll(".grid-center"));
@@ -1229,9 +1268,8 @@ const findGridAtPoint = (x, y) => {
     ) {
       const index = Number(el.dataset.gridIndex);
       const gridIndex = Number.isNaN(index) ? 0 : index;
-      // Use the blocks-layer rect for pixel→cell mapping.
-      // .grid-center includes its own 2px dashed border + any padding,
-      // so measuring from its edge would skew rawGridX/Y.
+      // Use blocks-layer rect for accurate pixel→cell mapping.
+      // The outer .grid-center includes border/titlebar offsets.
       const blocksLayer = el.querySelector(".blocks-layer-transparent");
       const rect = blocksLayer ? blocksLayer.getBoundingClientRect() : outerRect;
       return { gridIndex, rect };
@@ -1255,12 +1293,12 @@ const handleMouseMove = (e) => {
     const cr = containerRef.value.getBoundingClientRect();
     const anchor = groupContext.value.initialPositions.find(p => p.id === draggedBlockId.value);
     ghostPos.value = {
-      x:           e.clientX - cr.left,
-      y:           e.clientY - cr.top,
+      x: e.clientX - cr.left,
+      y: e.clientY - cr.top,
       anchorGridX: anchor?.gridX ?? 0,
       anchorGridY: anchor?.gridY ?? 0,
-      cellSize:    getCellSize(draggedBlockGrid.value),
-      visible:     !hit,
+      cellSize: getCellSize(draggedBlockGrid.value),
+      visible: !hit,
     };
   }
 
@@ -1320,7 +1358,7 @@ const handleMouseMove = (e) => {
   }
 };
 
-const handleMouseUp = () => {
+const handleMouseUp = (event) => {
   const wasDragging = isDragging.value;
   const savedDragState = dragState.value;
   const savedGroupCtx = groupContext.value;
@@ -1425,6 +1463,9 @@ const handleMouseUp = () => {
     saveToHistory();
   }
 
+  // Reset confirm feedback when user moves blocks
+  if (confirmResult.value) confirmResult.value = null;
+
   dragState.value = null;
   groupContext.value = null;
 };
@@ -1433,7 +1474,6 @@ const handleGridCanvasClick = (e) => {
   const cls = e.target.classList;
   if (
     cls.contains("grid-cell-transparent") ||
-    cls.contains("grid-fullscreen") ||
     cls.contains("grid-center") ||
     cls.contains("grid-transparent")
   ) {
@@ -1449,8 +1489,6 @@ const handleCutModeMouseDown = (e) => {
   }
 };
 
-const toggleOverlay = () => (showOverlay.value = !showOverlay.value);
-const closeOverlay = () => (showOverlay.value = false);
 
 
 // ===== RANDOM PLACEMENT HELPERS =====
@@ -1589,6 +1627,55 @@ const createInitialBlocks = () => {
   saveToStorage();
 };
 
+
+
+
+// ===== CONFIRM BUTTON =====
+// Validates that each banca grid contains exactly the blocks specified in its answer.
+// originGridId on each block tracks which source grid it came from.
+// gridLabel 'any' matches blocks from any origin.
+const confirmResult = ref(null);
+const cardResult = ref(null); // 'ok' | 'bad' | null — managed internally  // null | 'correct' | 'incorrect'
+
+const handleConfirm = () => {
+  const bancaAnswers = cfg.value._bancaAnswers;
+  if (!bancaAnswers.length) return;
+
+
+  const allCorrect = bancaAnswers.every(({ gridIdx, answer }) => {
+    // Get all blocks currently in this banca grid
+    const bancaBlocks = blocks.value.filter(b => b.gridId === gridIdx);
+
+    // Group by originGridId → count
+    const originCounts = {};
+    bancaBlocks.forEach(b => {
+      const originDef = gridDefs.value.find(g => g.id === b.originGridId);
+      const originLabel = originDef?.label ?? String(b.originGridId);
+      originCounts[originLabel] = (originCounts[originLabel] ?? 0) + 1;
+    });
+
+    // Check 'any' case first
+    const anyNeeds = answer.find(a => a.gridLabel === 'any');
+    if (anyNeeds) {
+      return bancaBlocks.length === anyNeeds.needs;
+    }
+
+    // Exact match: every answer entry must match, and no extra origins allowed
+    const totalNeeded = answer.reduce((s, a) => s + a.needs, 0);
+    if (bancaBlocks.length !== totalNeeded) return false;
+
+    return answer.every(a => (originCounts[a.gridLabel] ?? 0) === a.needs);
+  });
+
+  confirmResult.value = allCorrect ? 'correct' : 'incorrect';
+  emit('complete', { correct: allCorrect });
+
+  // Reset feedback after delay regardless of result
+  setTimeout(() => { confirmResult.value = null; }, 1500);
+};
+
+const resetConfirm = () => { confirmResult.value = null; };
+
 // ===== KEYBOARD =====
 const handleKeyDown = (e) => {
   // Skip shortcuts when typing in an input.
@@ -1613,15 +1700,14 @@ const handleKeyDown = (e) => {
 
 
 onMounted(() => {
-  if (cfg.value.inline) {
-    // Small delay for the render
-    setTimeout(updateContainerSize, 0);
-  }
-  if (_hasBeenMounted) {
-    loadFromStorage();
-  } else {
-    localStorage.removeItem(cfg.value.storageKey);
-    _hasBeenMounted = true;
+  setTimeout(updateContainerSize, 0);
+  if (cfg.value.storageKey) {
+    if (_hasBeenMounted.value) {
+      loadFromStorage();
+    } else {
+      localStorage.removeItem(cfg.value.storageKey);
+      _hasBeenMounted.value = true;
+    }
   }
   saveToHistory();
 
@@ -1649,12 +1735,12 @@ onUnmounted(() => {
 // Returns [{ gridId, blockIds, count }] for every connected group.
 const getConnectedGroups = () =>
   adjacentGroups.value.map(ids => ({
-    gridId:   blocks.value.find(b => b.id === ids[0])?.gridId ?? null,
+    gridId: blocks.value.find(b => b.id === ids[0])?.gridId ?? null,
     blockIds: ids,
-    count:    ids.length,
+    count: ids.length,
   }));
 
-defineExpose({ getConnectedGroups });
+defineExpose({ resetConfirm }); // getConnectedGroups removed from public API — validation is internal
 
 // Build SVG path data for the outer perimeter of a connected group.
 // Returns an array of path strings, one per group in the given grid.
@@ -1676,8 +1762,8 @@ const getGroupOutlines = (gridId) => {
     const edges = [];
     const dirs = [
       { dx: 0, dy: -1, x1: 0, y1: 0, x2: 1, y2: 0 }, // top
-      { dx: 1, dy:  0, x1: 1, y1: 0, x2: 1, y2: 1 }, // right
-      { dx: 0, dy:  1, x1: 0, y1: 1, x2: 1, y2: 1 }, // bottom
+      { dx: 1, dy: 0, x1: 1, y1: 0, x2: 1, y2: 1 }, // right
+      { dx: 0, dy: 1, x1: 0, y1: 1, x2: 1, y2: 1 }, // bottom
       { dx: -1, dy: 0, x1: 0, y1: 0, x2: 0, y2: 1 }, // left
     ];
 
@@ -1708,7 +1794,7 @@ const getGroupOutlines = (gridId) => {
     while (remaining.length) {
       const nextIdx = remaining.findIndex(
         e => toKey(e.x1, e.y1) === toKey(curX, curY) ||
-             toKey(e.x2, e.y2) === toKey(curX, curY)
+          toKey(e.x2, e.y2) === toKey(curX, curY)
       );
       if (nextIdx === -1) break;
       const next = remaining.splice(nextIdx, 1)[0];
@@ -1727,9 +1813,17 @@ const getGroupOutlines = (gridId) => {
 </script>
 
 <template>
-  <div>
+  <div class="ex-card" :class="{ 'ex-card--ok': cardResult === 'ok', 'ex-card--bad': cardResult === 'bad' }">
+
+    <!-- Card header: index + enunciado + result badge -->
+    <div v-if="exercise?.text || cardResult" class="ex-header">
+      <p v-if="exercise?.text" class="ex-question">{{ exercise.text }}</p>
+      <span v-if="cardResult === 'ok'" class="badge badge--ok">✓ Correcto</span>
+      <span v-if="cardResult === 'bad'" class="badge badge--bad">✗ Inténtalo</span>
+    </div>
+
     <!-- ===== INLINE MODE ===== -->
-    <div v-if="cfg.inline" ref="containerRef" class="inline-grids-container" @mousedown="handleGridCanvasClick">
+    <div ref="containerRef" class="inline-grids-container" @mousedown="handleGridCanvasClick">
       <!-- Left zone: operand grids stacked, fit-content -->
       <template v-if="cfg.inlineColumns > 0">
         <div class="inline-zone-left">
@@ -1772,23 +1866,11 @@ const getGroupOutlines = (gridId) => {
                     </div>
                   </div>
                   <!-- Group outlines — one SVG path per connected group -->
-                  <svg
-                    class="group-outline-svg"
-                    :width="getGridWidth(gridDef.id)"
-                    :height="getGridHeight(gridDef.id)"
-                    :style="{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', overflow: 'visible' }"
-                  >
-                    <path
-                      v-for="(pathD, i) in getGroupOutlines(gridDef.id)"
-                      :key="i"
-                      :d="pathD"
-                      fill="none"
-                      stroke="rgba(99,102,241,0.85)"
-                      stroke-width="2.5"
-                      stroke-linejoin="round"
-                      stroke-linecap="round"
-                      class="group-outline-path"
-                    />
+                  <svg class="group-outline-svg" :width="getGridWidth(gridDef.id)" :height="getGridHeight(gridDef.id)"
+                    :style="{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', overflow: 'visible' }">
+                    <path v-for="(pathD, i) in getGroupOutlines(gridDef.id)" :key="i" :d="pathD" fill="none"
+                      stroke="rgba(99,102,241,0.85)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"
+                      class="group-outline-path" />
                   </svg>
                 </div>
               </div>
@@ -1839,23 +1921,11 @@ const getGroupOutlines = (gridId) => {
                     </div>
                   </div>
                   <!-- Group outlines -->
-                  <svg
-                    class="group-outline-svg"
-                    :width="getGridWidth(gridDef.id)"
-                    :height="getGridHeight(gridDef.id)"
-                    :style="{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', overflow: 'visible' }"
-                  >
-                    <path
-                      v-for="(pathD, i) in getGroupOutlines(gridDef.id)"
-                      :key="i"
-                      :d="pathD"
-                      fill="none"
-                      stroke="rgba(99,102,241,0.85)"
-                      stroke-width="2.5"
-                      stroke-linejoin="round"
-                      stroke-linecap="round"
-                      class="group-outline-path"
-                    />
+                  <svg class="group-outline-svg" :width="getGridWidth(gridDef.id)" :height="getGridHeight(gridDef.id)"
+                    :style="{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', overflow: 'visible' }">
+                    <path v-for="(pathD, i) in getGroupOutlines(gridDef.id)" :key="i" :d="pathD" fill="none"
+                      stroke="rgba(99,102,241,0.85)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"
+                      class="group-outline-path" />
                   </svg>
                 </div>
               </div>
@@ -1867,6 +1937,17 @@ const getGroupOutlines = (gridId) => {
             <!-- Label below answer grid -->
             <div v-if="cfg.showGridLabels" class="sumando-num-label sumando-num-label--answer">{{ gridDef.label }}</div>
           </div>
+        </div>
+
+
+        <!-- Confirm button — always visible for exercises with banca answers -->
+        <div v-if="cfg._bancaAnswers?.length" class="confirm-wrap">
+          <button class="confirm-btn" :class="{
+            'confirm-btn--correct': confirmResult === 'correct',
+            'confirm-btn--incorrect': confirmResult === 'incorrect',
+          }" @click="handleConfirm">
+            {{ confirmResult === 'correct' ? '✓' : confirmResult === 'incorrect' ? '✗' : 'Confirmar' }}
+          </button>
         </div>
       </template>
 
@@ -1982,192 +2063,15 @@ const getGroupOutlines = (gridId) => {
 
       <!-- Group ghost — one tile per block in the dragged group -->
       <template v-if="ghostPos.visible && draggedBlockId !== null && groupContext !== null">
-        <div
-          v-for="pos in groupContext.initialPositions"
-          :key="pos.id"
-          class="drag-ghost"
-          :style="{
-            left:            (ghostPos.x + (pos.gridX - ghostPos.anchorGridX) * ghostPos.cellSize) + 'px',
-            top:             (ghostPos.y + (pos.gridY - ghostPos.anchorGridY) * ghostPos.cellSize) + 'px',
-            width:           ghostPos.cellSize + 'px',
-            height:          ghostPos.cellSize + 'px',
-            backgroundColor: blocks.find(b => b.id === pos.id)?.units?.[0]?.color ?? BLOCK_COLOR,
-          }"
-        ></div>
+        <div v-for="pos in groupContext.initialPositions" :key="pos.id" class="drag-ghost" :style="{
+          left: (ghostPos.x + (pos.gridX - ghostPos.anchorGridX) * ghostPos.cellSize) + 'px',
+          top: (ghostPos.y + (pos.gridY - ghostPos.anchorGridY) * ghostPos.cellSize) + 'px',
+          width: ghostPos.cellSize + 'px',
+          height: ghostPos.cellSize + 'px',
+          backgroundColor: blocks.find(b => b.id === pos.id)?.units?.[0]?.color ?? BLOCK_COLOR,
+        }"></div>
       </template>
     </div>
-
-    <!-- ========== MODO OVERLAY (original) ========== -->
-    <template v-else>
-      <!-- FAB para abrir el overlay -->
-      <div v-if="!showOverlay" class="floating-buttons">
-        <button @click="toggleOverlay" class="fab">🧱 Abrir grids</button>
-      </div>
-
-      <!-- Overlay fullscreen -->
-      <div v-if="showOverlay" class="grid-fullscreen" @mousedown="handleGridCanvasClick">
-        <!-- Botón X para cerrar -->
-        <button class="overlay-close" @mousedown.stop @click="closeOverlay" title="Cerrar">✕</button>
-
-        <!-- Grids posicionados fijos -->
-        <div v-for="gridDef in gridDefs" :key="gridDef.id" class="grid-center" :data-grid-index="gridDef.id"
-          :style="getGridPositionStyle(gridDef.id)" @mousedown.stop @mousedown.capture="handleCutModeMouseDown">
-          <!-- Titlebar -->
-          <div class="grid-titlebar">
-            <span></span><span></span>
-            <span class="grid-titlebar-label">{{ gridDef.label }}</span>
-            <span v-if="gridDef.showCount" class="grid-titlebar-count">
-              {{ getGridBlocks(gridDef.id).length }} bloque{{
-                getGridBlocks(gridDef.id).length !== 1 ? "s" : ""
-              }}
-            </span>
-          </div>
-
-          <!-- Grid body -->
-          <div class="grid-body">
-            <div class="grid-transparent" :class="{ 'cutting-cursor': cuttingMode }" :style="{
-              width: getGridWidth(gridDef.id) + 'px',
-              height: getGridHeight(gridDef.id) + 'px',
-            }" @mousedown="handleGridCanvasClick">
-              <div v-for="y in getGridRows(gridDef.id)" :key="`row-${gridDef.id}-${y}`" class="grid-row-transparent">
-                <div v-for="x in getGridCols(gridDef.id)" :key="`cell-${gridDef.id}-${x}-${y}`"
-                  class="grid-cell-transparent" :style="{
-                    width: getCellSize(gridDef.id) + 'px',
-                    height: getCellSize(gridDef.id) + 'px',
-                  }"></div>
-              </div>
-            </div>
-
-            <!-- Blocks layer -->
-            <div class="blocks-layer-transparent" :style="{
-              width: getGridWidth(gridDef.id) + 'px',
-              height: getGridHeight(gridDef.id) + 'px',
-            }">
-              <div v-for="block in getGridBlocks(gridDef.id)" :key="block.id"
-                @mousedown="handleBlockMouseDown($event, block.id, gridDef.id)" :class="{
-                  'block-transparent': true,
-                  'block-dragging': draggedBlockId === block.id,
-                  'block-selected': selectedBlockId === block.id,
-                  'block-connected': block.isConnected,
-                  'no-hover': cuttingMode,
-                  'visually-separated': block.visuallySeparated,
-                }" :style="{
-                  left: block.gridX * getCellSize(gridDef.id) + 'px',
-                  top: block.gridY * getCellSize(gridDef.id) + 'px',
-                  width: getCellSize(gridDef.id) + 'px',
-                  height: getCellSize(gridDef.id) + 'px',
-                  position: 'absolute',
-                  backgroundColor: 'transparent',
-                }">
-                <template v-if="block.units?.length > 0">
-                  <div v-for="(unit, i) in block.units" :key="i" class="unit-cube" :style="{
-                    position: 'absolute',
-                    left: unit.relX * getCellSize(gridDef.id) + 'px',
-                    top: unit.relY * getCellSize(gridDef.id) + 'px',
-                    width: getCellSize(gridDef.id) + 'px',
-                    height: getCellSize(gridDef.id) + 'px',
-                    backgroundColor: unit.color,
-                    border: '2px solid rgba(0,0,0,0.3)',
-                    boxSizing: 'border-box',
-                  }"></div>
-                </template>
-
-                <div :style="{
-                  position: 'absolute',
-                  inset: 0,
-                  backgroundImage: getBorderStyle(block),
-                  pointerEvents: 'none',
-                }"></div>
-              </div>
-            </div>
-
-            <!-- SVGs de modo corte — filtrados por gridId -->
-            <template v-if="cuttingMode">
-              <svg class="connections-layer" :style="{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: getGridWidth(gridDef.id) + 'px',
-                height: getGridHeight(gridDef.id) + 'px',
-                overflow: 'visible',
-                pointerEvents: 'none',
-                zIndex: 50,
-              }">
-                <g v-for="(conn, idx) in getConnectionsForGrid(gridDef.id)" :key="`conn-${gridDef.id}-${idx}`">
-                  <line :x1="conn.x1" :y1="conn.y1" :x2="conn.x2" :y2="conn.y2" :stroke="connectionsToCut.includes(conn) ? '#be185d' : '#ec4899'
-                    " :stroke-width="connectionsToCut.includes(conn) ? '6' : '4'" stroke-dasharray="8,4"
-                    stroke-linecap="round" :class="[
-                      'cut-line',
-                      { 'cut-line-active': connectionsToCut.includes(conn) },
-                    ]" />
-                  <circle :cx="conn.x1" :cy="conn.y1" :r="connectionsToCut.includes(conn) ? '6' : '4'" :fill="connectionsToCut.includes(conn) ? '#be185d' : '#ec4899'
-                    " />
-                  <circle :cx="conn.x2" :cy="conn.y2" :r="connectionsToCut.includes(conn) ? '6' : '4'" :fill="connectionsToCut.includes(conn) ? '#be185d' : '#ec4899'
-                    " />
-                </g>
-              </svg>
-
-              <svg v-if="cutState.active && cutState.currentConnection" class="snap-cut-visualization" :style="{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: getGridWidth(gridDef.id) + 'px',
-                height: getGridHeight(gridDef.id) + 'px',
-                overflow: 'visible',
-                pointerEvents: 'none',
-                zIndex: 55,
-              }">
-                <line v-for="conn in getConnectionsForGrid(gridDef.id)" :key="`snap-${conn.shape1Id}-${conn.shape2Id}`"
-                  :x1="conn.x1" :y1="conn.y1" :x2="conn.x2" :y2="conn.y2"
-                  :stroke="isConnectionCut(conn) ? '#10b981' : '#94a3b8'" :stroke-width="isConnectionCut(conn) ? 6 : 3"
-                  stroke-linecap="round" :opacity="isConnectionCut(conn) ? 0.9 : 0.3" />
-                <line v-if="cutState.currentConnection" :x1="cutState.currentConnection.x1"
-                  :y1="cutState.currentConnection.y1" :x2="cutState.currentConnection.x2"
-                  :y2="cutState.currentConnection.y2" :stroke="cutState.reachedOppositeVertex ? '#10b981' : '#ec4899'"
-                  stroke-width="8" stroke-linecap="round" :opacity="cutState.reachedOppositeVertex ? 0.9 : 0.6" />
-                <circle v-if="cutState.snappedPosition" :cx="cutState.snappedPosition.x"
-                  :cy="cutState.snappedPosition.y" r="10" :fill="cutState.reachedOppositeVertex ? '#10b981' : '#fbbf24'"
-                  stroke="#ffffff" stroke-width="3" opacity="1">
-                  <animate v-if="cutState.reachedOppositeVertex" attributeName="r" values="10;14;10" dur="0.6s"
-                    repeatCount="indefinite" />
-                </circle>
-              </svg>
-            </template>
-          </div>
-
-          <!-- Toolbar por grid -->
-          <div v-if="cfg.showToolbar" class="grid-toolbar" @mousedown.stop>
-            <button @click="addBlock(gridDef.id)" class="tool-btn tool-btn--add"
-              :style="{ backgroundColor: BLOCK_COLOR }" title="Agregar bloque">
-              +1
-            </button>
-
-            <div class="tool-divider"></div>
-            <button @click="shuffleGrid(gridDef.id)" class="tool-btn" title="Mezclar bloques">
-              🔀
-            </button>
-            <div class="tool-divider"></div>
-
-            <button @click="toggleCuttingMode" :class="['tool-btn', { 'tool-btn--active': cuttingMode }]"
-              title="Desacoplar conexiones">
-              ✂️
-            </button>
-
-            <div class="tool-divider"></div>
-            <button @click="undo" :disabled="currentStep <= 0" class="tool-btn" title="Deshacer">
-              ↶
-            </button>
-            <button @click="redo" :disabled="currentStep >= history.length - 1" class="tool-btn" title="Rehacer">
-              ↷
-            </button>
-            <div class="tool-divider"></div>
-            <button @click="clearAll" class="tool-btn tool-btn--danger" title="Borrar todo">
-              🗑️
-            </button>
-          </div>
-        </div>
-      </div>
-    </template>
 
     <Transition name="toast">
       <div v-if="showToast" class="toast-notification">{{ toastMessage }}</div>
@@ -2182,82 +2086,15 @@ const getGroupOutlines = (gridId) => {
   box-sizing: border-box;
 }
 
-.floating-buttons {
-  position: fixed;
-  bottom: 2rem;
-  right: 2rem;
-  z-index: 900;
-}
 
-.fab {
-  padding: 1rem 1.5rem;
-  background: white;
-  border: none;
-  border-radius: 50px;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #1f2937;
-  cursor: pointer;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  transition: all 0.3s ease;
-}
 
-.fab:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
-  background: #10b981;
-  color: white;
-}
-
-.grid-fullscreen {
-  position: fixed;
-  inset: 0;
-  background: transparent;
-  z-index: 1000;
-  overflow: hidden;
-  overscroll-behavior: none;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-/* Botón X para cerrar el overlay */
-.overlay-close {
-  position: fixed;
-  top: 1rem;
-  right: 1rem;
-  z-index: 2000;
-  width: 36px;
-  height: 36px;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 50%;
-  font-size: 1rem;
-  color: #475569;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
-  transition: all 0.15s;
-}
-
-.overlay-close:hover {
-  background: white;
-  color: #ef4444;
-  transform: scale(1.1);
-}
-
-/* Fixed grid — positioned via getGridPositionStyle() */
 .grid-center {
-  position: fixed;
+  position: relative;
   display: inline-flex;
   flex-direction: column;
   align-items: flex-start;
   background: white;
   border-radius: 12px;
-  box-shadow:
-    0 0 0 2px rgba(0, 0, 0, 0.15),
-    0 8px 32px rgba(0, 0, 0, 0.15);
 }
 
 .grid-titlebar {
@@ -2674,6 +2511,156 @@ const getGroupOutlines = (gridId) => {
 }
 
 @keyframes outline-dash {
-  to { stroke-dashoffset: -20; }
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+/* ===== CARD ===== */
+.ex-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
+  border: 2px solid transparent;
+  transition: border-color 0.25s;
+  overflow: hidden;
+}
+
+.ex-card--ok {
+  border-color: #10b981;
+}
+
+.ex-card--bad {
+  border-color: #ef4444;
+}
+
+.ex-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.9rem 1.25rem 0;
+}
+
+.ex-index {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #6366f1;
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ex-question {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e1b4b;
+  flex: 1;
+  line-height: 1.4;
+}
+
+.badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.6rem;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.badge--ok {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.badge--bad {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.ex-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.25rem;
+  border-top: 1px solid #f3f4f6;
+}
+
+.btn-reset {
+  padding: 0.38rem 0.65rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: white;
+  color: #6b7280;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-reset:hover {
+  background: #f9fafb;
+}
+
+/* ===== CONFIRM BUTTON ===== */
+.confirm-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.confirm-btn {
+  padding: 0.45rem 1rem;
+  border: 2px solid #6366f1;
+  border-radius: 8px;
+  background: white;
+  color: #6366f1;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.confirm-btn:hover {
+  background: #eef2ff;
+}
+
+.confirm-btn--correct {
+  background: #10b981;
+  border-color: #10b981;
+  color: white;
+}
+
+.confirm-btn--incorrect {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: white;
+}
+
+.dz-icon {
+  font-size: 1.3rem;
+  pointer-events: none;
+  line-height: 1;
+  user-select: none;
+}
+
+.dz-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  text-align: center;
+  max-width: 54px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
